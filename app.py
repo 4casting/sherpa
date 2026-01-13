@@ -1,14 +1,30 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- SEITEN KONFIGURATION ---
 st.set_page_config(page_title="Aerospace Finance & Bilanzen", page_icon="✈️", layout="wide")
-
 st.title("✈️ Luft- & Raumfahrt: Markt & Bilanzen")
+
+# --- HILFSFUNKTION FÜR ZAHLENFORMATIERUNG ---
+def format_currency_value(value, currency_symbol="$"):
+    """Wandelt große Zahlen in lesbare Strings um (Mio / Mrd)."""
+    if value is None or pd.isna(value):
+        return "-"
+    
+    # Absolutwert für die Größenbestimmung
+    abs_val = abs(value)
+    
+    if abs_val >= 1e9: # Milliarden
+        return f"{value / 1e9:.2f} Mrd. {currency_symbol}"
+    elif abs_val >= 1e6: # Millionen
+        return f"{value / 1e6:.2f} Mio. {currency_symbol}"
+    elif abs_val >= 1e3: # Tausend
+        return f"{value / 1e3:.2f} Tsd. {currency_symbol}"
+    else:
+        return f"{value:.2f} {currency_symbol}"
 
 # --- SIDEBAR ---
 st.sidebar.header("⚙️ Konfiguration")
@@ -50,7 +66,6 @@ def load_price_data(tickers, start, end):
 # --- DATEN LADEN (BILANZEN) ---
 @st.cache_data
 def load_balance_sheet(ticker_symbol):
-    """Lädt die Jährliche Bilanz"""
     stock = yf.Ticker(ticker_symbol)
     return stock.balance_sheet
 
@@ -81,59 +96,59 @@ if len(selected_tickers) > 0:
     st.markdown("---")
 
     # === 2. BILANZEN & FUNDAMENTALDATEN ===
-    st.subheader("📚 Unternehmensbilanzen (Balance Sheets)")
-    st.info("Hinweis: Die Daten zeigen die letzten verfügbaren Jahresabschlüsse. Beträge sind in der jeweiligen Landeswährung.")
-
-    # Wir erstellen Tabs für jedes ausgewählte Unternehmen
+    st.subheader("📚 Unternehmensbilanzen (Formatiert)")
+    
     tabs = st.tabs(selected_companies)
 
     for i, company_name in enumerate(selected_companies):
         ticker = selected_tickers[i]
         
         with tabs[i]:
-            # Spinner anzeigen, da das Laden der Bilanz 1-2 Sek dauern kann
             with st.spinner(f"Lade Bilanz für {company_name}..."):
                 bs = load_balance_sheet(ticker)
             
             if not bs.empty:
-                # --- Wichtige KPIs extrahieren (falls vorhanden) ---
+                # Währungssymbol bestimmen
+                currency_symbol = "€" if ".PA" in ticker or ".DE" in ticker else "$"
+                
+                # --- DATEN AUFBEREITEN FÜR ANZEIGE ---
+                # 1. Kopie erstellen, damit wir Strings formatieren können
+                display_df = bs.copy()
+                
+                # 2. Spaltennamen (Datum) verschönern: Nur das Jahr anzeigen
+                # yfinance liefert oft Timestamp('2023-12-31 00:00:00') -> wir wollen "2023"
+                new_columns = []
+                for date_col in display_df.columns:
+                    try:
+                        new_columns.append(pd.to_datetime(date_col).year)
+                    except:
+                        new_columns.append(str(date_col))
+                display_df.columns = new_columns
+
+                # 3. Formatierung auf alle Zellen anwenden
+                # Wir nutzen .applymap (oder .map in neueren Pandas Versionen), um die Funktion auf jede Zelle anzuwenden
+                display_df = display_df.applymap(lambda x: format_currency_value(x, currency_symbol))
+
+                # 4. KPI Berechnung (auf den Original-Zahlen 'bs', nicht auf den Strings!)
                 try:
-                    # Hinweis: yfinance Labels sind auf Englisch
-                    # Wir nutzen .get(), um Fehler zu vermeiden, falls Daten fehlen
-                    total_assets = bs.loc['Total Assets'].iloc[0] if 'Total Assets' in bs.index else None
-                    total_liab = bs.loc['Total Liabilities Net Minority Interest'].iloc[0] if 'Total Liabilities Net Minority Interest' in bs.index else None
-                    equity = bs.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in bs.index else None
-                    cash = bs.loc['Cash And Cash Equivalents'].iloc[0] if 'Cash And Cash Equivalents' in bs.index else None
+                    total_assets = bs.loc['Total Assets'].iloc[0] if 'Total Assets' in bs.index else 0
+                    equity = bs.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in bs.index else 0
                     
-                    # Währungssymbol raten (nicht perfekt, aber hilfreich)
-                    curr = "€" if ".PA" in ticker or ".DE" in ticker else "$"
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Gesamtvermögen", format_currency_value(total_assets, currency_symbol))
+                    col2.metric("Eigenkapital", format_currency_value(equity, currency_symbol))
+                    
+                    if equity > 0:
+                        debt_ratio = (bs.loc['Total Liabilities Net Minority Interest'].iloc[0] / equity)
+                        col3.metric("Verschuldungsgrad (D/E)", f"{debt_ratio:.2f}")
+                except:
+                    st.caption("Schnell-KPIs nicht vollständig verfügbar.")
 
-                    # KPI Container
-                    kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
-                    
-                    if total_assets:
-                        kpi_col1.metric("Gesamtvermögen (Assets)", f"{total_assets/1e9:.1f} Mrd. {curr}")
-                    
-                    if equity:
-                        kpi_col2.metric("Eigenkapital", f"{equity/1e9:.1f} Mrd. {curr}")
-                    
-                    if cash:
-                        kpi_col3.metric("Cash Bestand", f"{cash/1e9:.1f} Mrd. {curr}")
-
-                    # Verschuldungsgrad (Debt-to-Equity)
-                    if total_liab and equity and equity > 0:
-                        de_ratio = total_liab / equity
-                        kpi_col4.metric("Verschuldungsgrad (D/E)", f"{de_ratio:.2f}")
-                    
-                    st.divider()
-                    
-                except Exception as e:
-                    st.warning(f"Konnte Schnell-Analyse nicht erstellen: {e}")
-
-                # --- Die volle Bilanz Tabelle ---
-                st.write("**Detaillierte Bilanz (Jahreswerte):**")
-                # Transponieren (.T), damit Jahre oben stehen und Kategorien links
-                st.dataframe(bs, height=400, use_container_width=True)
+                st.divider()
+                
+                # 5. Anzeige der Tabelle
+                st.markdown(f"**Detaillierte Bilanz für {company_name} (in {currency_symbol})**")
+                st.dataframe(display_df, use_container_width=True, height=500)
                 
             else:
                 st.error("Keine Bilanzdaten verfügbar.")
