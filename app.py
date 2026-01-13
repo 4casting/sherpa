@@ -7,40 +7,58 @@ from datetime import datetime, timedelta
 # --- SEITEN KONFIGURATION ---
 st.set_page_config(page_title="Global Market Trends & Valuation", page_icon="🌍", layout="wide")
 st.title("🌍 Global Market Trends & Valuation Tool")
-st.markdown("Analyse von Wachstumsbranchen mit automatischer Bewertungs-Logik.")
+st.markdown("Analyse von über 80 Unternehmen in 8 Sektoren mit automatischer Bewertungs-Logik.")
 
-# --- DATEN DEFINITIONEN (SEKTOREN & UNTERNEHMEN) ---
+# --- DATEN DEFINITIONEN (ERWEITERT) ---
 SECTORS = {
     "✈️ Luft- & Raumfahrt (Defense)": {
-        'Airbus SE': 'AIR.PA',
-        'Boeing Co.': 'BA',
-        'Lockheed Martin': 'LMT',
-        'Northrop Grumman': 'NOC',
-        'Rheinmetall': 'RHM.DE',
-        'Safran SA': 'SAF.PA'
+        'Airbus SE': 'AIR.PA', 'Boeing Co.': 'BA', 'Lockheed Martin': 'LMT',
+        'Northrop Grumman': 'NOC', 'Rheinmetall': 'RHM.DE', 'Safran SA': 'SAF.PA',
+        'L3Harris': 'LHX', 'General Dynamics': 'GD', 'Thales': 'HO.PA',
+        'Leonardo': 'LDO.MI', 'MTU Aero Engines': 'MTX.DE', 'Dassault Aviation': 'AM.PA',
+        'Hensoldt': 'HAG.DE', 'Textron': 'TXT'
+    },
+    "🤖 KI & Halbleiter": {
+        'Nvidia': 'NVDA', 'TSMC': 'TSM', 'ASML Holding': 'ASML',
+        'AMD': 'AMD', 'Intel': 'INTC', 'Broadcom': 'AVGO',
+        'Qualcomm': 'QCOM', 'Texas Instruments': 'TXN', 'Micron': 'MU',
+        'Applied Materials': 'AMAT', 'Lam Research': 'LRCX', 'Infineon': 'IFX.DE'
+    },
+    "☁️ Big Tech & Software": {
+        'Microsoft': 'MSFT', 'Apple': 'AAPL', 'Alphabet (Google)': 'GOOGL',
+        'Amazon': 'AMZN', 'Meta Platforms': 'META', 'Salesforce': 'CRM',
+        'Oracle': 'ORCL', 'Adobe': 'ADBE', 'SAP SE': 'SAP',
+        'ServiceNow': 'NOW', 'Palo Alto Networks': 'PANW', 'Palantir': 'PLTR'
     },
     "🧬 Healthcare & Langlebigkeit": {
-        'Novo Nordisk (Adipositas)': 'NVO',
-        'Eli Lilly (Pharma)': 'LLY',
-        'Intuitive Surgical (Robotic)': 'ISRG',
-        'Vertex Pharma (Biotech)': 'VRTX',
-        'Pfizer': 'PFE',
-        'Moderna': 'MRNA'
+        'Novo Nordisk': 'NVO', 'Eli Lilly': 'LLY', 'Intuitive Surgical': 'ISRG',
+        'Vertex Pharma': 'VRTX', 'Pfizer': 'PFE', 'Moderna': 'MRNA',
+        'Johnson & Johnson': 'JNJ', 'AbbVie': 'ABBV', 'Merck & Co.': 'MRK',
+        'Amgen': 'AMGN', 'Stryker': 'SYK', 'Thermo Fisher': 'TMO'
     },
     "⚡ GreenTech & Energie": {
-        'Siemens Energy': 'ENR.DE',
-        'NextEra Energy (Renewables)': 'NEE',
-        'Schneider Electric': 'SU.PA',
-        'First Solar': 'FSLR',
-        'Vestas Wind Systems': 'VWS.CO',
-        'Enphase Energy': 'ENPH'
+        'Siemens Energy': 'ENR.DE', 'NextEra Energy': 'NEE', 'Schneider Electric': 'SU.PA',
+        'First Solar': 'FSLR', 'Vestas Wind Systems': 'VWS.CO', 'Enphase Energy': 'ENPH',
+        'Orsted': 'ORSTED.CO', 'Iberdrola': 'IBE.MC', 'Enel': 'ENEL.MI',
+        'SolarEdge': 'SEDG', 'Brookfield Renewable': 'BEP', 'Plug Power': 'PLUG'
+    },
+    "🚗 E-Mobilität & Auto": {
+        'Tesla': 'TSLA', 'BYD Co.': 'BYDDF', 'Volkswagen Vz.': 'VOW3.DE',
+        'BMW': 'BMW.DE', 'Mercedes-Benz': 'MBG.DE', 'Stellantis': 'STLA',
+        'Rivian': 'RIVN', 'NIO': 'NIO', 'Toyota Motor': 'TM', 
+        'Ferrari': 'RACE', 'Porsche AG': 'P911.DE'
     },
     "🌏 Emerging Markets & Konsum": {
-        'MercadoLibre (LatAm Amazon)': 'MELI',
-        'HDFC Bank (Indien)': 'HDB',
-        'LVMH (Luxus)': 'MC.PA',
-        'Alibaba (China)': 'BABA',
-        'Sea Limited (Südostasien)': 'SE'
+        'MercadoLibre': 'MELI', 'HDFC Bank': 'HDB', 'LVMH': 'MC.PA',
+        'Alibaba': 'BABA', 'Sea Limited': 'SE', 'Tencent': 'TCEHY',
+        'JD.com': 'JD', 'Infosys': 'INFY', 'ICICI Bank': 'IBN',
+        'Petrobras': 'PBR', 'Hermès': 'RMS.PA'
+    },
+    "💰 Finanzen & Fintech": {
+        'JPMorgan Chase': 'JPM', 'Visa': 'V', 'Mastercard': 'MA',
+        'BlackRock': 'BLK', 'Goldman Sachs': 'GS', 'Morgan Stanley': 'MS',
+        'PayPal': 'PYPL', 'Block (Square)': 'SQ', 'Allianz SE': 'ALV.DE',
+        'Munich Re': 'MUV2.DE', 'Berkshire Hathaway': 'BRK-B'
     }
 }
 
@@ -61,7 +79,6 @@ def format_currency_value(value, currency_symbol=""):
 def analyze_valuation(info):
     """
     Erstellt ein Bewertungssignal basierend auf fundamentalen Daten.
-    Logik: Kombination aus KGV (P/E), PEG-Ratio und Kurs-Buchwert (P/B).
     """
     pe_ratio = info.get('trailingPE')
     peg_ratio = info.get('pegRatio')
@@ -72,26 +89,23 @@ def analyze_valuation(info):
     color = "gray"
     reason = "Zu wenig Daten für eine Bewertung."
 
-    # Bewertungs-Logik
-    # 1. Unterbewertet (Value Chance)
+    # Bewertungs-Logik (Vereinfacht)
     if (peg_ratio is not None and peg_ratio < 1.0) or \
        (pe_ratio is not None and pe_ratio < 15 and pb_ratio is not None and pb_ratio < 1.5):
         signal = "🟢 UNTERBEWERTET"
-        color = "green"
-        reason = "Niedriges KGV im Verhältnis zum Wachstum (PEG < 1) oder klassisches Value-Schnäppchen."
+        color = "#2ca02c" # Grün
+        reason = "Günstig bewertet relativ zum Wachstum (PEG < 1) oder Buchwert."
     
-    # 2. Fair Bewertet (Growth at Reasonable Price)
-    elif (peg_ratio is not None and 1.0 <= peg_ratio <= 2.0) or \
-         (pe_ratio is not None and 15 <= pe_ratio <= 30):
+    elif (peg_ratio is not None and 1.0 <= peg_ratio <= 2.2) or \
+         (pe_ratio is not None and 15 <= pe_ratio <= 35):
         signal = "🟡 FAIR BEWERTET"
         color = "#FFD700" # Gold
-        reason = "Bewertung entspricht den Wachstumsaussichten."
+        reason = "Bewertung entspricht den Wachstumsaussichten oder Marktstandard."
 
-    # 3. Überbewertet / Teuer (High Growth Premium)
-    elif (pe_ratio is not None and pe_ratio > 40) or (peg_ratio is not None and peg_ratio > 2.5):
+    elif (pe_ratio is not None and pe_ratio > 35) or (peg_ratio is not None and peg_ratio > 2.5):
         signal = "🔴 HOCH BEWERTET"
-        color = "red"
-        reason = "Hohes KGV oder teuer im Verhältnis zum Wachstum. Der Markt preist viel Optimismus ein."
+        color = "#d62728" # Rot
+        reason = "Hohes KGV oder teuer im Verhältnis zum Wachstum (Premium-Bewertung)."
 
     return {
         "signal": signal,
@@ -112,11 +126,11 @@ st.sidebar.header("⚙️ Konfiguration")
 selected_sector_name = st.sidebar.selectbox("Branche wählen:", list(SECTORS.keys()))
 sector_companies = SECTORS[selected_sector_name]
 
-# 2. Unternehmen Auswahl (Basierend auf Sektor)
+# 2. Unternehmen Auswahl
 selected_companies_list = st.sidebar.multiselect(
     "Unternehmen vergleichen:",
     options=list(sector_companies.keys()),
-    default=list(sector_companies.keys())[:3] # Standardmäßig die ersten 3
+    default=list(sector_companies.keys())[:3]
 )
 
 # Zeitraum
@@ -140,8 +154,11 @@ def load_price_data(tickers, start, end):
 @st.cache_data
 def load_company_details(ticker_symbol):
     """Lädt Bilanz UND Info-Daten für die Bewertung"""
-    stock = yf.Ticker(ticker_symbol)
-    return stock.balance_sheet, stock.info
+    try:
+        stock = yf.Ticker(ticker_symbol)
+        return stock.balance_sheet, stock.info
+    except:
+        return pd.DataFrame(), {}
 
 # --- HAUPTTEIL ---
 
@@ -149,7 +166,9 @@ if len(selected_tickers) > 0:
     
     # === 1. CHART ANZEIGE ===
     st.subheader(f"📈 Performance-Vergleich: {selected_sector_name}")
-    df = load_price_data(selected_tickers, start_date, end_date)
+    
+    with st.spinner("Lade Kursdaten..."):
+        df = load_price_data(selected_tickers, start_date, end_date)
     
     if not df.empty:
         # Normalisierung
@@ -165,7 +184,7 @@ if len(selected_tickers) > 0:
                 fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data[column], mode='lines', name=column, opacity=0.5))
         
         fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['Durchschnitt'], mode='lines', name='DURCHSCHNITT', line=dict(color='white', width=4)))
-        fig.update_layout(yaxis_title="Performance %", hovermode="x unified", height=400)
+        fig.update_layout(yaxis_title="Performance %", hovermode="x unified", height=450)
         st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
@@ -173,6 +192,9 @@ if len(selected_tickers) > 0:
     # === 2. FUNDAMENTAL-ANALYSE & BEWERTUNG ===
     st.subheader("🔍 Fundamentalanalyse & Bewertungssignal")
     
+    if len(selected_companies_list) > 6:
+        st.warning("⚠️ Hinweis: Das Laden von Detaildaten für viele Unternehmen kann einen Moment dauern.")
+
     tabs = st.tabs(selected_companies_list)
 
     for i, company_name in enumerate(selected_companies_list):
@@ -182,72 +204,66 @@ if len(selected_tickers) > 0:
             with st.spinner(f"Analysiere {company_name}..."):
                 bs, info = load_company_details(ticker)
             
-            # Währung
-            currency = info.get('currency', 'USD')
-            if currency == 'EUR': currency_sym = '€'
-            elif currency == 'USD': currency_sym = '$'
-            else: currency_sym = currency
+            if info:
+                # Währung
+                currency = info.get('currency', 'USD')
+                if currency == 'EUR': currency_sym = '€'
+                elif currency == 'USD': currency_sym = '$'
+                else: currency_sym = currency
 
-            # --- A. BEWERTUNGS-SIGNAL (NEU!) ---
-            valuation = analyze_valuation(info)
-            
-            # Container mit Hintergrundfarbe für das Signal
-            st.markdown(f"""
-            <div style="padding: 15px; border-radius: 10px; border: 1px solid #333; background-color: #262730; margin-bottom: 20px;">
-                <h3 style="margin:0; color: {valuation['color']};">{valuation['signal']}</h3>
-                <p style="margin-top:5px; font-style: italic;">"{valuation['reason']}"</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            # Metriken für die Bewertung anzeigen
-            m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-            metrics = valuation['metrics']
-            
-            def safe_num(n): return f"{n:.2f}" if n is not None else "-"
-            
-            m_col1.metric("KGV (P/E)", safe_num(metrics['KGV (P/E)']), help="< 15 gilt oft als günstig")
-            m_col2.metric("PEG Ratio", safe_num(metrics['PEG Ratio']), help="< 1.0 gilt als unterbewertet (Wachstum vs Preis)")
-            m_col3.metric("KBV (P/B)", safe_num(metrics['KBV (P/B)']), help="Preis im Verhältnis zum Buchwert (Eigenkapital)")
-            m_col4.metric("Forward P/E", safe_num(metrics['Forward P/E']), help="Erwartetes KGV nächstes Jahr")
-            
-            st.divider()
-
-            # --- B. BILANZ-DATEN (EXISTIEREND) ---
-            if not bs.empty:
-                # Schnell-KPIs aus der Bilanz
-                try:
-                    total_assets = bs.loc['Total Assets'].iloc[0] if 'Total Assets' in bs.index else 0
-                    equity = bs.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in bs.index else 0
-                    debt = bs.loc['Total Debt'].iloc[0] if 'Total Debt' in bs.index else (
-                        bs.loc['Total Liabilities Net Minority Interest'].iloc[0] if 'Total Liabilities Net Minority Interest' in bs.index else 0
-                    )
-                    
-                    kpi1, kpi2, kpi3 = st.columns(3)
-                    kpi1.metric("Gesamtvermögen", format_currency_value(total_assets, currency_sym))
-                    kpi2.metric("Eigenkapital", format_currency_value(equity, currency_sym))
-                    
-                    if equity > 0:
-                        debt_equity = debt / equity
-                        kpi3.metric("Verschuldungsgrad (D/E)", f"{debt_equity:.2f}")
-                except:
-                    st.caption("Einige Bilanz-KPIs nicht verfügbar.")
-
-                # Detaillierte Tabelle
-                display_df = bs.copy()
-                # Spalten formatieren (Jahreszahlen)
-                new_cols = []
-                for c in display_df.columns:
-                    try: new_cols.append(str(pd.to_datetime(c).year))
-                    except: new_cols.append(str(c))
-                display_df.columns = new_cols
+                # --- A. BEWERTUNGS-SIGNAL ---
+                valuation = analyze_valuation(info)
                 
-                # Werte formatieren
-                display_df = display_df.applymap(lambda x: format_currency_value(x, currency_sym))
+                st.markdown(f"""
+                <div style="padding: 15px; border-radius: 10px; border: 1px solid #444; background-color: #262730; margin-bottom: 20px;">
+                    <h3 style="margin:0; color: {valuation['color']};">{valuation['signal']}</h3>
+                    <p style="margin-top:5px; margin-bottom:0; font-style: italic;">"{valuation['reason']}"</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Metriken
+                m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+                metrics = valuation['metrics']
                 
-                with st.expander("Vollständige Bilanz ansehen"):
-                    st.dataframe(display_df, use_container_width=True)
+                def safe_num(n): return f"{n:.2f}" if n is not None else "-"
+                
+                m_col1.metric("KGV (P/E)", safe_num(metrics['KGV (P/E)']))
+                m_col2.metric("PEG Ratio", safe_num(metrics['PEG Ratio']))
+                m_col3.metric("KBV (P/B)", safe_num(metrics['KBV (P/B)']))
+                m_col4.metric("Forward P/E", safe_num(metrics['Forward P/E']))
+                
+                st.divider()
+
+                # --- B. BILANZ-DATEN ---
+                if not bs.empty:
+                    try:
+                        total_assets = bs.loc['Total Assets'].iloc[0] if 'Total Assets' in bs.index else 0
+                        equity = bs.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in bs.index else 0
+                        debt = bs.loc['Total Debt'].iloc[0] if 'Total Debt' in bs.index else 0
+                        
+                        kpi1, kpi2, kpi3 = st.columns(3)
+                        kpi1.metric("Gesamtvermögen", format_currency_value(total_assets, currency_sym))
+                        kpi2.metric("Eigenkapital", format_currency_value(equity, currency_sym))
+                        
+                        if equity > 0:
+                            debt_equity = debt / equity
+                            kpi3.metric("Verschuldungsgrad (D/E)", f"{debt_equity:.2f}")
+                    except:
+                        pass
+
+                    # Tabelle formatieren
+                    display_df = bs.copy()
+                    new_cols = []
+                    for c in display_df.columns:
+                        try: new_cols.append(str(pd.to_datetime(c).year))
+                        except: new_cols.append(str(c))
+                    display_df.columns = new_cols
+                    display_df = display_df.applymap(lambda x: format_currency_value(x, currency_sym))
+                    
+                    with st.expander(f"Detaillierte Bilanz: {company_name}"):
+                        st.dataframe(display_df, use_container_width=True)
             else:
-                st.warning("Keine detaillierten Bilanzdaten verfügbar.")
+                st.error("Keine Detaildaten verfügbar.")
 
 else:
     st.info("Bitte wähle eine Branche und Unternehmen in der Sidebar aus.")
