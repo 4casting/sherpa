@@ -5,314 +5,197 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- SEITEN KONFIGURATION ---
-st.set_page_config(page_title="Global Market Radar", page_icon="📡", layout="wide")
-st.title("📡 Global Market Radar & Valuation Matrix")
-st.markdown("Analyse von **Top-Playern** in Wachstumssektoren mit automatischer **Bewertungs-Matrix**.")
+st.set_page_config(page_title="Strategic Market Radar", page_icon="🧠", layout="wide")
+st.title("🧠 Strategic Market Radar: Porter & Rationale Erwartungen")
+st.markdown("""
+Kombiniert Finanzdaten mit Erkenntnissen aus **Porters Wettbewerbsstrategie** (Moat/Qualität) 
+und der **Theorie Rationaler Erwartungen** (Marktstimmung/Momentum).
+""")
 
-# --- DATEN DEFINITIONEN (MASSIV ERWEITERT) ---
+# --- DATEN DEFINITIONEN ---
 SECTORS = {
     "✈️ Luft- & Raumfahrt (Defense)": {
         'Airbus SE': 'AIR.PA', 'Boeing Co.': 'BA', 'Lockheed Martin': 'LMT',
-        'Northrop Grumman': 'NOC', 'Rheinmetall': 'RHM.DE', 'Safran SA': 'SAF.PA',
-        'L3Harris': 'LHX', 'General Dynamics': 'GD', 'Thales': 'HO.PA',
-        'Leonardo': 'LDO.MI', 'MTU Aero Engines': 'MTX.DE', 'Dassault Aviation': 'AM.PA',
-        'Hensoldt': 'HAG.DE', 'Textron': 'TXT', 'Rolls-Royce': 'RR.L',
-        'BAE Systems': 'BA.L', 'TransDigm': 'TDG', 'Howmet Aerospace': 'HWM'
+        'Rheinmetall': 'RHM.DE', 'Safran': 'SAF.PA', 'Rolls-Royce': 'RR.L'
     },
     "🤖 KI & Halbleiter": {
-        'Nvidia': 'NVDA', 'TSMC': 'TSM', 'ASML Holding': 'ASML',
-        'AMD': 'AMD', 'Intel': 'INTC', 'Broadcom': 'AVGO',
-        'Qualcomm': 'QCOM', 'Texas Instruments': 'TXN', 'Micron': 'MU',
-        'Applied Materials': 'AMAT', 'Lam Research': 'LRCX', 'Infineon': 'IFX.DE',
-        'KLA Corp': 'KLAC', 'Synopsys': 'SNPS', 'Cadence Design': 'CDNS',
-        'Arm Holdings': 'ARM', 'Super Micro Computer': 'SMCI', 'Marvell Tech': 'MRVL'
-    },
-    "☁️ Big Tech & Software": {
-        'Microsoft': 'MSFT', 'Apple': 'AAPL', 'Alphabet (Google)': 'GOOGL',
-        'Amazon': 'AMZN', 'Meta Platforms': 'META', 'Salesforce': 'CRM',
-        'Oracle': 'ORCL', 'Adobe': 'ADBE', 'SAP SE': 'SAP',
-        'ServiceNow': 'NOW', 'Palo Alto Networks': 'PANW', 'Palantir': 'PLTR',
-        'Intuit': 'INTU', 'Snowflake': 'SNOW', 'Datadog': 'DDOG',
-        'CrowdStrike': 'CRWD', 'Atlassian': 'TEAM', 'Uber Technologies': 'UBER'
-    },
-    "🧬 Healthcare & Langlebigkeit": {
-        'Novo Nordisk': 'NVO', 'Eli Lilly': 'LLY', 'Intuitive Surgical': 'ISRG',
-        'Vertex Pharma': 'VRTX', 'Pfizer': 'PFE', 'Moderna': 'MRNA',
-        'Johnson & Johnson': 'JNJ', 'AbbVie': 'ABBV', 'Merck & Co.': 'MRK',
-        'Amgen': 'AMGN', 'Stryker': 'SYK', 'Thermo Fisher': 'TMO',
-        'Boston Scientific': 'BSX', 'Abbott Labs': 'ABT', 'Danaher': 'DHR',
-        'Regeneron': 'REGN', 'Sanofi': 'SAN.PA', 'Novartis': 'NOVN.SW'
-    },
-    "⚡ GreenTech & Energie": {
-        'Siemens Energy': 'ENR.DE', 'NextEra Energy': 'NEE', 'Schneider Electric': 'SU.PA',
-        'First Solar': 'FSLR', 'Vestas Wind Systems': 'VWS.CO', 'Enphase Energy': 'ENPH',
-        'Orsted': 'ORSTED.CO', 'Iberdrola': 'IBE.MC', 'Enel': 'ENEL.MI',
-        'SolarEdge': 'SEDG', 'Brookfield Renewable': 'BEP', 'Plug Power': 'PLUG',
-        'Canadian Solar': 'CSIQ', 'SMA Solar': 'S92.DE', 'Nordex': 'NDX1.DE',
-        'Bloom Energy': 'BE', 'RWE AG': 'RWE.DE'
+        'Nvidia': 'NVDA', 'TSMC': 'TSM', 'ASML': 'ASML', 'Intel': 'INTC', 'AMD': 'AMD'
     },
     "🚗 E-Mobilität & Auto": {
-        'Tesla': 'TSLA', 'BYD Co.': 'BYDDF', 'Volkswagen Vz.': 'VOW3.DE',
-        'BMW': 'BMW.DE', 'Mercedes-Benz': 'MBG.DE', 'Stellantis': 'STLA',
-        'Rivian': 'RIVN', 'NIO': 'NIO', 'Toyota Motor': 'TM', 
-        'Ferrari': 'RACE', 'Porsche AG': 'P911.DE', 'Honda Motor': 'HMC',
-        'Ford Motor': 'F', 'General Motors': 'GM', 'Li Auto': 'LI',
-        'XPeng': 'XPEV', 'Lucid Group': 'LCID'
+        'Tesla': 'TSLA', 'BYD': 'BYDDF', 'VW': 'VOW3.DE', 'Mercedes': 'MBG.DE', 'BMW': 'BMW.DE'
     },
-    "🌏 Emerging Markets & Konsum": {
-        'MercadoLibre': 'MELI', 'HDFC Bank': 'HDB', 'LVMH': 'MC.PA',
-        'Alibaba': 'BABA', 'Sea Limited': 'SE', 'Tencent': 'TCEHY',
-        'JD.com': 'JD', 'Infosys': 'INFY', 'ICICI Bank': 'IBN',
-        'Petrobras': 'PBR', 'Hermès': 'RMS.PA', 'Nubank': 'NU',
-        'StoneCo': 'STNE', 'Coupang': 'CPNG', 'Baidu': 'BIDU',
-        'PDD Holdings (Temu)': 'PDD', 'Reliance Industries': 'RELIANCE.NS'
-    },
-    "💰 Finanzen & Fintech": {
-        'JPMorgan Chase': 'JPM', 'Visa': 'V', 'Mastercard': 'MA',
-        'BlackRock': 'BLK', 'Goldman Sachs': 'GS', 'Morgan Stanley': 'MS',
-        'PayPal': 'PYPL', 'Block (Square)': 'SQ', 'Allianz SE': 'ALV.DE',
-        'Munich Re': 'MUV2.DE', 'Berkshire Hathaway': 'BRK-B',
-        'American Express': 'AXP', 'Citigroup': 'C', 'Wells Fargo': 'WFC',
-        'Bank of America': 'BAC', 'Charles Schwab': 'SCHW', 'Adyen': 'ADYEN.AS'
+    "🧬 Healthcare": {
+        'Novo Nordisk': 'NVO', 'Eli Lilly': 'LLY', 'Pfizer': 'PFE', 'Bayer': 'BAYN.DE'
     }
 }
 
 # --- HILFSFUNKTIONEN ---
 
-def format_currency_value(value, currency_symbol=""):
-    """Formatiert große Zahlen (Mrd/Mio)."""
-    if value is None or pd.isna(value): return "-"
-    abs_val = abs(value)
-    if abs_val >= 1e9: return f"{value / 1e9:.2f} Mrd. {currency_symbol}"
-    elif abs_val >= 1e6: return f"{value / 1e6:.2f} Mio. {currency_symbol}"
-    else: return f"{value:.2f} {currency_symbol}"
+def format_currency(value, symbol):
+    if not value or pd.isna(value): return "-"
+    if abs(value) >= 1e9: return f"{value/1e9:.1f} Mrd. {symbol}"
+    return f"{value/1e6:.1f} Mio. {symbol}"
 
-def analyze_valuation(info):
+# === 1. PORTER-ANALYSE (STRATEGIE) ===
+def calculate_porter_score(info):
     """
-    Erstellt ein Bewertungssignal und gibt strukturierte Daten zurück.
+    Quantifiziert Porters 'Five Forces' & Generische Strategien anhand von Finanzkennzahlen.
+    Score von 0 (Schlecht) bis 10 (Hervorragender Moat).
     """
-    pe_ratio = info.get('trailingPE')
-    peg_ratio = info.get('pegRatio')
-    pb_ratio = info.get('priceToBook')
-    forward_pe = info.get('forwardPE')
-
-    signal = "⚪ Neutral / Keine Daten"
-    color = "gray"
-    # Einfache Logik für die Tabelle
-    sort_score = 2 
-
-    if (peg_ratio is not None and peg_ratio < 1.0) or \
-       (pe_ratio is not None and 0 < pe_ratio < 15 and pb_ratio is not None and pb_ratio < 1.5):
-        signal = "🟢 UNTERBEWERTET"
-        color = "green"
-        sort_score = 1
+    score = 0
+    reasons = []
     
-    elif (peg_ratio is not None and 1.0 <= peg_ratio <= 2.2) or \
-         (pe_ratio is not None and 15 <= pe_ratio <= 35):
-        signal = "🟡 FAIR"
-        color = "orange"
-        sort_score = 2
+    # 1. Differenzierung / Pricing Power (Bruttomarge)
+    # Wer hohe Margen hat, hat ein einzigartiges Produkt (Porter: Differentiation)
+    gross_margin = info.get('grossMargins', 0)
+    if gross_margin > 0.50: 
+        score += 3
+        reasons.append("💎 Extrem hohe Pricing Power (Gross Margin > 50%)")
+    elif gross_margin > 0.30: 
+        score += 2
+        reasons.append("✅ Gute Differenzierung (Gross Margin > 30%)")
+    elif gross_margin < 0.10:
+        score -= 1
+        reasons.append("⚠️ Preiskampf / Commodity (Niedrige Marge)")
 
-    elif (pe_ratio is not None and pe_ratio > 35) or (peg_ratio is not None and peg_ratio > 2.5):
-        signal = "🔴 HOCH"
-        color = "red"
-        sort_score = 3
+    # 2. Eintrittsbarrieren / Effizienz (ROIC / ROE)
+    # Hoher ROE bedeutet, Konkurrenten können das Kapital nicht so effizient einsetzen.
+    roe = info.get('returnOnEquity', 0)
+    if roe > 0.20: 
+        score += 3
+        reasons.append("🏰 Hohe Eintrittsbarrieren (ROE > 20%)")
+    elif roe > 0.12: 
+        score += 1
+    
+    # 3. Marktführerschaft / Skaleneffekte (Op. Marge vs. Branchendurchschnitt proxy)
+    op_margin = info.get('operatingMargins', 0)
+    if op_margin > 0.15: 
+        score += 2
+        reasons.append("⚙️ Kostenführerschaft/Effizienz (Op. Margin > 15%)")
+    
+    # 4. Finanzielle Festung (Verschuldung)
+    # Ein strategischer Spieler braucht "Deep Pockets" für Preiskriege.
+    debt_to_equity = info.get('debtToEquity', 1000) # Falls None, hoch setzen
+    if debt_to_equity < 80: # < 0.8
+        score += 2
+        reasons.append("🛡️ Finanzielle Stärke (Wenig Schulden)")
+    
+    # Deckelung auf 10
+    return min(score, 10), reasons
 
-    return {
-        "signal": signal,
-        "color": color,
-        "metrics": {
-            "KGV": pe_ratio,
-            "PEG": peg_ratio,
-            "KBV": pb_ratio,
-            "Fwd KGV": forward_pe
-        },
-        "sort_score": sort_score
-    }
+# === 2. PSYCHOLOGIE / RATIONALE ERWARTUNGEN ===
+def analyze_market_psychology(info, price_data):
+    """
+    Prüft Momentum (Bischof: Behavioral) und Erwartungshaltung (Rational Expectations).
+    """
+    current_price = price_data.iloc[-1]
+    
+    # Momentum (200-Tage-Linie) - Trendfolge-Strategie
+    sma200 = price_data.rolling(200).mean().iloc[-1]
+    trend = "neutral"
+    
+    if pd.isna(sma200):
+        trend_signal = "⚪ Zu wenig Daten"
+    elif current_price > sma200:
+        trend_signal = "📈 Bullish (Rationaler Aufwärtstrend)"
+        trend = "bullish"
+    else:
+        trend_signal = "📉 Bearish (Marktpreise fallen)"
+        trend = "bearish"
+        
+    # Erwartungs-Check (PEG Ratio)
+    # Ist der Markt "irrational exuberant" (zu teuer) oder pessimistisch?
+    peg = info.get('pegRatio')
+    valuation_msg = ""
+    
+    if peg and peg > 3.0:
+        valuation_msg = "🔥 Markt überhitzt (Hohe Erwartungen eingepreist)"
+    elif peg and peg < 0.8:
+        valuation_msg = "❄️ Markt pessimistisch (Value Chance?)"
+    else:
+        valuation_msg = "⚖️ Rationale Bewertung"
+        
+    return trend_signal, valuation_msg, trend
 
-# --- SIDEBAR KONFIGURATION ---
-st.sidebar.header("⚙️ Konfiguration")
+# --- SIDEBAR ---
+st.sidebar.header("⚙️ Auswahl")
+sector = st.sidebar.selectbox("Sektor", list(SECTORS.keys()))
+tickers_dict = SECTORS[sector]
+selected_companies = st.sidebar.multiselect("Unternehmen", list(tickers_dict.keys()), default=list(tickers_dict.keys())[:2])
 
-selected_sector_name = st.sidebar.selectbox("Branche wählen:", list(SECTORS.keys()))
-sector_companies = SECTORS[selected_sector_name]
-
-# Standardmäßig die ersten 5 auswählen, damit es nicht zu langsam lädt
-default_selection = list(sector_companies.keys())[:5]
-selected_companies_list = st.sidebar.multiselect(
-    "Unternehmen vergleichen:",
-    options=list(sector_companies.keys()),
-    default=default_selection
-)
-
-start_date = st.sidebar.date_input("Startdatum", value=datetime.now() - timedelta(days=365))
-end_date = st.sidebar.date_input("Enddatum", value=datetime.now())
-
-selected_tickers = [sector_companies[name] for name in selected_companies_list]
-
-# --- DATEN LADEN ---
-@st.cache_data
-def load_price_data(tickers, start, end):
-    if not tickers: return pd.DataFrame()
-    data = yf.download(tickers, start=start, end=end)['Close']
-    if isinstance(data, pd.Series):
-        data = data.to_frame()
-        data.columns = tickers
-    return data.dropna(how='all')
-
-@st.cache_data
-def get_company_info_batch(ticker_list):
-    """Lädt Infos für mehrere Ticker effizient."""
-    results = {}
-    for t in ticker_list:
-        try:
-            stock = yf.Ticker(t)
-            # Wir holen nur info und bilanz bei Bedarf, hier nur Info für die Tabelle
-            results[t] = stock.info
-        except:
-            results[t] = {}
-    return results
-
-@st.cache_data
-def load_balance_sheet(ticker):
-    try:
-        return yf.Ticker(ticker).balance_sheet
-    except:
-        return pd.DataFrame()
+start_date = datetime.now() - timedelta(days=400) # Genug für SMA200
+end_date = datetime.now()
 
 # --- HAUPTTEIL ---
 
-if len(selected_tickers) > 0:
+if selected_companies:
     
-    # === 1. CHART ===
-    st.subheader(f"📈 Performance: {selected_sector_name}")
-    with st.spinner("Lade Kursdaten..."):
-        df = load_price_data(selected_tickers, start_date, end_date)
+    # Daten laden
+    ticker_symbols = [tickers_dict[name] for name in selected_companies]
+    price_df = yf.download(ticker_symbols, start=start_date, end=end_date)['Close']
     
-    if not df.empty:
-        normalized_df = df / df.iloc[0]
-        df['Portfolio_Index'] = normalized_df.mean(axis=1)
-        
-        plot_data = (normalized_df * 100) - 100
-        plot_data['Durchschnitt'] = (df['Portfolio_Index'] * 100) - 100
-        
-        fig = go.Figure()
-        for column in plot_data.columns:
-            if column != 'Durchschnitt':
-                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data[column], mode='lines', name=column, opacity=0.3))
-        
-        fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['Durchschnitt'], mode='lines', name='DURCHSCHNITT', line=dict(color='white', width=4)))
-        fig.update_layout(yaxis_title="Performance %", hovermode="x unified", height=400)
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("---")
-
-    # === 2. ÜBERSICHTS-MATRIX (TABELLE) ===
-    st.subheader("📊 Bewertungs-Matrix (Sektor Übersicht)")
-    st.caption("Vergleich der ausgewählten Unternehmen basierend auf aktuellen Fundamentaldaten.")
+    # Tabs für Analyse-Ebenen
+    tab1, tab2 = st.tabs(["🛡️ Porter-Strategie (Fundamental)", "🧠 Markt-Psychologie (Trend)"])
     
-    with st.spinner("Analysiere Fundamentaldaten für die Übersicht..."):
-        # Daten für alle ausgewählten Ticker laden
-        infos = get_company_info_batch(selected_tickers)
+    # === TAB 1: PORTER ===
+    with tab1:
+        st.subheader("Wettbewerbsvorteile nach Porter")
+        st.markdown("Wie stark ist der 'Burggraben' (Moat) und die Preissetzungsmacht?")
         
-        table_data = []
-        for i, company_name in enumerate(selected_companies_list):
-            ticker = selected_tickers[i]
-            info = infos.get(ticker, {})
+        cols = st.columns(len(selected_companies))
+        for idx, company in enumerate(selected_companies):
+            ticker = tickers_dict[company]
+            stock = yf.Ticker(ticker)
+            info = stock.info
             
-            # Analyse durchführen
-            val = analyze_valuation(info)
-            metrics = val['metrics']
+            score, reasons = calculate_porter_score(info)
             
-            # Währung
-            curr = info.get('currency', '')
-            price = info.get('currentPrice', 'N/A')
+            # Farb-Codierung für den Score
+            score_color = "green" if score >= 7 else "orange" if score >= 4 else "red"
             
-            table_data.append({
-                "Unternehmen": company_name,
-                "Ticker": ticker,
-                "Preis": f"{price} {curr}",
-                "Signal": val['signal'], # Für Sortierung/Farbe
-                "KGV (P/E)": metrics['KGV'],
-                "PEG Ratio": metrics['PEG'],
-                "KBV (P/B)": metrics['KBV'],
-                "Fwd KGV": metrics['Fwd KGV'],
-            })
-            
-        # DataFrame erstellen
-        overview_df = pd.DataFrame(table_data)
-        
-        # DataFrame anzeigen mit Styling
-        if not overview_df.empty:
-            st.dataframe(
-                overview_df,
-                column_config={
-                    "Signal": st.column_config.TextColumn(
-                        "Bewertung",
-                        help="Grün = Günstig/Unterbewertet, Gelb = Fair, Rot = Hoch bewertet",
-                    ),
-                    "KGV (P/E)": st.column_config.NumberColumn("KGV", format="%.1f"),
-                    "PEG Ratio": st.column_config.NumberColumn("PEG", format="%.2f"),
-                    "KBV (P/B)": st.column_config.NumberColumn("KBV", format="%.1f"),
-                    "Fwd KGV": st.column_config.NumberColumn("Fwd KGV", format="%.1f"),
-                },
-                use_container_width=True,
-                hide_index=True
-            )
-        else:
-            st.warning("Keine Daten für die Matrix verfügbar.")
-
-    st.markdown("---")
-
-    # === 3. DETAIL-ANSICHT (TABS) ===
-    st.subheader("🔍 Tiefenanalyse & Bilanzen")
-    
-    tabs = st.tabs(selected_companies_list)
-
-    for i, company_name in enumerate(selected_companies_list):
-        ticker = selected_tickers[i]
-        
-        with tabs[i]:
-            # Wir nutzen die bereits geladenen Infos, laden aber die Bilanz frisch
-            info = infos.get(ticker, {})
-            
-            with st.spinner(f"Lade Bilanz für {company_name}..."):
-                bs = load_balance_sheet(ticker)
-            
-            # Währung bestimmen
-            currency = info.get('currency', 'USD')
-            sym = '€' if currency == 'EUR' else '$'
-            
-            # Noch mal das Signal groß anzeigen
-            val = analyze_valuation(info)
-            st.markdown(f"**Bewertung:** {val['signal']}")
-            
-            if not bs.empty:
-                # KPIs
-                try:
-                    assets = bs.loc['Total Assets'].iloc[0] if 'Total Assets' in bs.index else 0
-                    equity = bs.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in bs.index else 0
-                    debt = bs.loc['Total Debt'].iloc[0] if 'Total Debt' in bs.index else 0
-                    
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Gesamtvermögen", format_currency_value(assets, sym))
-                    c2.metric("Eigenkapital", format_currency_value(equity, sym))
-                    if equity > 0:
-                        c3.metric("Verschuldungsgrad", f"{debt/equity:.2f}")
-                except:
-                    pass
+            with cols[idx]:
+                st.markdown(f"### {company}")
+                st.markdown(f"<h1 style='color:{score_color}; font-size: 50px;'>{score}/10</h1>", unsafe_allow_html=True)
+                st.caption("Porter-Score (Qualität)")
                 
-                # Tabelle formatieren
-                disp_df = bs.copy()
-                cols = []
-                for c in disp_df.columns:
-                    try: cols.append(str(pd.to_datetime(c).year))
-                    except: cols.append(str(c))
-                disp_df.columns = cols
-                disp_df = disp_df.applymap(lambda x: format_currency_value(x, sym))
+                for r in reasons:
+                    st.write(r)
                 
-                st.dataframe(disp_df, use_container_width=True)
-            else:
-                st.info("Keine detaillierte Bilanz verfügbar.")
+                st.divider()
+                st.metric("Bruttomarge (Pricing)", f"{info.get('grossMargins', 0):.1%}")
+                st.metric("ROE (Barriers)", f"{info.get('returnOnEquity', 0):.1%}")
+
+    # === TAB 2: PSYCHOLOGIE ===
+    with tab2:
+        st.subheader("Marktphasen & Rationale Erwartungen")
+        st.markdown("Handelt der Markt rational oder emotional? (Momentum & Bewertung)")
+        
+        # Chart zeichnen
+        if not price_df.empty:
+            # Rebase auf 100 für Vergleichbarkeit
+            norm_df = price_df / price_df.iloc[0] * 100
+            st.line_chart(norm_df)
+        
+        p_cols = st.columns(len(selected_companies))
+        for idx, company in enumerate(selected_companies):
+            ticker = tickers_dict[company]
+            # Einzeldaten für SMA
+            single_price = price_df[ticker].dropna() if isinstance(price_df, pd.DataFrame) else price_df.dropna()
+            
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            
+            trend_sig, val_msg, trend_dir = analyze_market_psychology(info, single_price)
+            
+            with p_cols[idx]:
+                st.markdown(f"### {company}")
+                st.info(trend_sig)
+                st.write(f"**Marktstimmung:** {val_msg}")
+                
+                beta = info.get('beta')
+                if beta:
+                    risk_label = "Volatil (High Risk)" if beta > 1.3 else "Stabil (Defensiv)" if beta < 0.8 else "Marktkonform"
+                    st.metric("Risiko-Faktor (Beta)", f"{beta:.2f}", risk_label)
 
 else:
-    st.info("Bitte wähle eine Branche und Unternehmen in der Sidebar aus.")
+    st.info("Bitte Unternehmen wählen.")
