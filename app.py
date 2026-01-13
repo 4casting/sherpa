@@ -134,7 +134,7 @@ if len(selected_tickers) > 0:
             y=plot_data['Durchschnitt (Index)'], 
             mode='lines', 
             name='PORTFOLIO DURCHSCHNITT',
-            line=dict(color='white', width=4) # Weiß hebt sich im Darkmode gut ab
+            line=dict(color='black', width=4) # Weiß hebt sich im Darkmode gut ab
         ))
 
         fig.update_layout(
