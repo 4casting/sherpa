@@ -145,4 +145,16 @@ if len(selected_tickers) > 0:
         
         st.plotly_chart(fig, use_container_width=True)
         
-        with
+        with st.expander("Erklärung der Berechnung"):
+            st.write("""
+            **Normalisierung:** Um Aktien mit unterschiedlichen Währungen und Preisen vergleichbar zu machen, 
+            werden alle Kurse auf den Startzeitpunkt normiert (Start = 0%).
+            
+            **Portfolio Durchschnitt:** Dies ist eine gleichgewichtete Betrachtung. Es wird simuliert, 
+            als hättest du am Startdatum den gleichen Geldbetrag in jede der ausgewählten Aktien investiert.
+            """)
+
+    else:
+        st.warning("Zu wenige Daten für den gewählten Zeitraum vorhanden. Bitte Zeitraum vergrößern.")
+else:
+    st.info("Bitte Unternehmen auswählen.")
