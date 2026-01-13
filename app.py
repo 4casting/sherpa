@@ -6,10 +6,9 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- SEITEN KONFIGURATION ---
-st.set_page_config(page_title="Aerospace Index & Portfolio", page_icon="✈️", layout="wide")
+st.set_page_config(page_title="Aerospace Finance & Bilanzen", page_icon="✈️", layout="wide")
 
-st.title("✈️ Luft- & Raumfahrt: Aggregierte Performance")
-st.markdown("Verfolgen Sie die Entwicklung eines **gleichgewichteten Portfolios** der gewählten Aktien.")
+st.title("✈️ Luft- & Raumfahrt: Markt & Bilanzen")
 
 # --- SIDEBAR ---
 st.sidebar.header("⚙️ Konfiguration")
@@ -27,134 +26,117 @@ companies = {
 }
 
 selected_companies = st.sidebar.multiselect(
-    "Unternehmen für den Index:",
+    "Unternehmen auswählen:",
     options=list(companies.keys()),
-    default=['Airbus SE', 'Boeing Co.', 'Lockheed Martin', 'Rheinmetall']
+    default=['Airbus SE', 'Boeing Co.', 'Lockheed Martin']
 )
 
 start_date = st.sidebar.date_input("Startdatum", value=datetime.now() - timedelta(days=365))
 end_date = st.sidebar.date_input("Enddatum", value=datetime.now())
 
-# Mapping Namen -> Ticker
 selected_tickers = [companies[name] for name in selected_companies]
 
-# --- DATEN LADEN ---
+# --- DATEN LADEN (PREISE) ---
 @st.cache_data
-def load_data(tickers, start, end):
+def load_price_data(tickers, start, end):
     if not tickers:
         return pd.DataFrame()
-    # 'Close' Preise laden
     data = yf.download(tickers, start=start, end=end)['Close']
-    # Falls nur eine Spalte zurückkommt (bei 1 Aktie), sicherstellen dass es ein DataFrame bleibt
     if isinstance(data, pd.Series):
         data = data.to_frame()
         data.columns = tickers
-    # Zeilen mit fehlenden Daten (NaN) am Anfang entfernen
-    data = data.dropna(how='all')
-    return data
+    return data.dropna(how='all')
+
+# --- DATEN LADEN (BILANZEN) ---
+@st.cache_data
+def load_balance_sheet(ticker_symbol):
+    """Lädt die Jährliche Bilanz"""
+    stock = yf.Ticker(ticker_symbol)
+    return stock.balance_sheet
+
+# --- HAUPTTEIL ---
 
 if len(selected_tickers) > 0:
-    df = load_data(selected_tickers, start_date, end_date)
     
-    if not df.empty and len(df) > 1:
-        
-        # --- BERECHNUNG DER NORMALISIERTEN DATEN ---
-        # Wir teilen jeden Preis durch den Preis am ersten Tag. 
-        # Startwert ist immer 1.0 (also 0% Veränderung).
+    # === 1. CHART & INDEX ===
+    st.subheader("📈 Kursentwicklung (Normalisiert)")
+    df = load_price_data(selected_tickers, start_date, end_date)
+    
+    if not df.empty:
         normalized_df = df / df.iloc[0]
-        
-        # Berechnung des "Portfolios" (Durchschnitt aller normalisierten Kurse)
-        # axis=1 bedeutet: Durchschnitt pro Tag über alle Spalten
         df['Portfolio_Index'] = normalized_df.mean(axis=1)
         
-        # --- KENNZAHLEN BERECHNEN (AGGREGIERT) ---
-        
-        # 1. Gesamtrendite (Total Return)
-        start_val = df['Portfolio_Index'].iloc[0]
-        end_val = df['Portfolio_Index'].iloc[-1]
-        total_return = (end_val - start_val) / start_val
-        
-        # 2. Volatilität (Risiko)
-        # Standardabweichung der täglichen prozentualen Änderungen * Wurzel(252 Handelstage)
-        daily_returns = df['Portfolio_Index'].pct_change()
-        volatility = daily_returns.std() * (252 ** 0.5)
-        
-        # 3. Bester & Schlechtester Performer im Korb
-        # Performance aller Einzelaktien berechnen
-        perf_series = (normalized_df.iloc[-1] - 1)
-        best_stock = perf_series.idxmax()
-        worst_stock = perf_series.idxmin()
-        
-        # Umwandlung Ticker -> Name für Anzeige
-        # (Umgekehrte Suche im Dictionary)
-        def get_name(tick):
-            for name, t in companies.items():
-                if t == tick: return name
-            return tick
-
-        # --- METRIKEN ANZEIGEN ---
-        st.subheader("📊 Portfolio Kennzahlen")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Gesamtrendite (Zeitraum)", f"{total_return:.2%}", delta_color="normal")
-        with col2:
-            st.metric("Volatilität (Risiko p.a.)", f"{volatility:.2%}")
-        with col3:
-            st.metric("Top Performer", get_name(best_stock), f"{perf_series.max():.2%}")
-        with col4:
-            st.metric("Low Performer", get_name(worst_stock), f"{perf_series.min():.2%}")
-
-        st.markdown("---")
-
-        # --- VISUALISIERUNG ---
-        st.subheader("📈 Index-Entwicklung (Rebase auf 0%)")
-        
-        # Umrechnen in Prozent für den Chart (Start bei 0)
         plot_data = (normalized_df * 100) - 100
-        plot_data['Durchschnitt (Index)'] = (df['Portfolio_Index'] * 100) - 100
+        plot_data['Durchschnitt'] = (df['Portfolio_Index'] * 100) - 100
         
         fig = go.Figure()
-
-        # 1. Die einzelnen Aktien (dünn und halbtransparent)
         for column in plot_data.columns:
-            if column != 'Durchschnitt (Index)':
-                fig.add_trace(go.Scatter(
-                    x=plot_data.index, 
-                    y=plot_data[column], 
-                    mode='lines', 
-                    name=get_name(column),
-                    opacity=0.4,  # Transparenz
-                    line=dict(width=1)
-                ))
-
-        # 2. Der Portfolio-Durchschnitt (dick und hervorstechend)
-        fig.add_trace(go.Scatter(
-            x=plot_data.index, 
-            y=plot_data['Durchschnitt (Index)'], 
-            mode='lines', 
-            name='PORTFOLIO DURCHSCHNITT',
-            line=dict(color='black', width=4) # Weiß hebt sich im Darkmode gut ab
-        ))
-
-        fig.update_layout(
-            yaxis_title="Performance in %",
-            hovermode="x unified",
-            legend=dict(orientation="h", y=1.1)
-        )
+            if column != 'Durchschnitt':
+                fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data[column], mode='lines', name=column, opacity=0.5))
         
+        fig.add_trace(go.Scatter(x=plot_data.index, y=plot_data['Durchschnitt'], mode='lines', name='DURCHSCHNITT', line=dict(color='white', width=4)))
+        fig.update_layout(yaxis_title="Performance %", hovermode="x unified", height=400)
         st.plotly_chart(fig, use_container_width=True)
-        
-        with st.expander("Erklärung der Berechnung"):
-            st.write("""
-            **Normalisierung:** Um Aktien mit unterschiedlichen Währungen und Preisen vergleichbar zu machen, 
-            werden alle Kurse auf den Startzeitpunkt normiert (Start = 0%).
-            
-            **Portfolio Durchschnitt:** Dies ist eine gleichgewichtete Betrachtung. Es wird simuliert, 
-            als hättest du am Startdatum den gleichen Geldbetrag in jede der ausgewählten Aktien investiert.
-            """)
 
-    else:
-        st.warning("Zu wenige Daten für den gewählten Zeitraum vorhanden. Bitte Zeitraum vergrößern.")
+    st.markdown("---")
+
+    # === 2. BILANZEN & FUNDAMENTALDATEN ===
+    st.subheader("📚 Unternehmensbilanzen (Balance Sheets)")
+    st.info("Hinweis: Die Daten zeigen die letzten verfügbaren Jahresabschlüsse. Beträge sind in der jeweiligen Landeswährung.")
+
+    # Wir erstellen Tabs für jedes ausgewählte Unternehmen
+    tabs = st.tabs(selected_companies)
+
+    for i, company_name in enumerate(selected_companies):
+        ticker = selected_tickers[i]
+        
+        with tabs[i]:
+            # Spinner anzeigen, da das Laden der Bilanz 1-2 Sek dauern kann
+            with st.spinner(f"Lade Bilanz für {company_name}..."):
+                bs = load_balance_sheet(ticker)
+            
+            if not bs.empty:
+                # --- Wichtige KPIs extrahieren (falls vorhanden) ---
+                try:
+                    # Hinweis: yfinance Labels sind auf Englisch
+                    # Wir nutzen .get(), um Fehler zu vermeiden, falls Daten fehlen
+                    total_assets = bs.loc['Total Assets'].iloc[0] if 'Total Assets' in bs.index else None
+                    total_liab = bs.loc['Total Liabilities Net Minority Interest'].iloc[0] if 'Total Liabilities Net Minority Interest' in bs.index else None
+                    equity = bs.loc['Stockholders Equity'].iloc[0] if 'Stockholders Equity' in bs.index else None
+                    cash = bs.loc['Cash And Cash Equivalents'].iloc[0] if 'Cash And Cash Equivalents' in bs.index else None
+                    
+                    # Währungssymbol raten (nicht perfekt, aber hilfreich)
+                    curr = "€" if ".PA" in ticker or ".DE" in ticker else "$"
+
+                    # KPI Container
+                    kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+                    
+                    if total_assets:
+                        kpi_col1.metric("Gesamtvermögen (Assets)", f"{total_assets/1e9:.1f} Mrd. {curr}")
+                    
+                    if equity:
+                        kpi_col2.metric("Eigenkapital", f"{equity/1e9:.1f} Mrd. {curr}")
+                    
+                    if cash:
+                        kpi_col3.metric("Cash Bestand", f"{cash/1e9:.1f} Mrd. {curr}")
+
+                    # Verschuldungsgrad (Debt-to-Equity)
+                    if total_liab and equity and equity > 0:
+                        de_ratio = total_liab / equity
+                        kpi_col4.metric("Verschuldungsgrad (D/E)", f"{de_ratio:.2f}")
+                    
+                    st.divider()
+                    
+                except Exception as e:
+                    st.warning(f"Konnte Schnell-Analyse nicht erstellen: {e}")
+
+                # --- Die volle Bilanz Tabelle ---
+                st.write("**Detaillierte Bilanz (Jahreswerte):**")
+                # Transponieren (.T), damit Jahre oben stehen und Kategorien links
+                st.dataframe(bs, height=400, use_container_width=True)
+                
+            else:
+                st.error("Keine Bilanzdaten verfügbar.")
+
 else:
-    st.info("Bitte Unternehmen auswählen.")
+    st.info("Bitte wähle Unternehmen in der Sidebar aus.")
