@@ -6,11 +6,10 @@ from datetime import datetime, timedelta
 
 # --- 1. SEITEN KONFIGURATION ---
 st.set_page_config(page_title="Global Market Radar", page_icon="📡", layout="wide")
-st.title("📡 Global Market Radar: Aktien & ETFs")
+st.title("📡 Global Market Radar: Analyse & Simulator")
 
 # --- 2. DATEN DEFINITIONEN ---
 
-# A) AKTIEN SEKTOREN
 STOCK_SECTORS = {
     "✈️ Luft- & Raumfahrt": {
         'Airbus': 'AIR.PA', 'Boeing': 'BA', 'Lockheed Martin': 'LMT',
@@ -45,7 +44,6 @@ STOCK_SECTORS = {
     }
 }
 
-# B) ETF SEKTOREN
 ETF_SECTORS = {
     "🌍 Welt & Broad Market": {
         'S&P 500': 'VOO', 'MSCI World': 'URTH', 'Nasdaq 100': 'QQQ',
@@ -69,260 +67,284 @@ ETF_SECTORS = {
     }
 }
 
-# --- 3. ANALYSE LOGIKEN ---
+# --- 3. ANALYSE & SIMULATION LOGIK ---
 
-# --- LOGIK FÜR AKTIEN ---
 def calculate_porter_score(info):
     score = 0
-    # 1. Pricing Power
     gm = info.get('grossMargins', 0)
     if gm and gm > 0.50: score += 3
     elif gm and gm > 0.30: score += 2
     elif gm and gm < 0.10: score -= 1
-    # 2. Barriers (ROE)
+    
     roe = info.get('returnOnEquity', 0)
     if roe and roe > 0.20: score += 3
     elif roe and roe > 0.12: score += 1
-    # 3. Operative Effizienz
+    
     om = info.get('operatingMargins', 0)
     if om and om > 0.15: score += 2
-    # 4. Finanzielle Stärke
+    
     de = info.get('debtToEquity', 100)
     if de and de < 80: score += 2
     return max(0, min(10, score))
 
-def get_stock_trend_signal(price_series):
+def get_trend_signal(price_series):
     if len(price_series) < 200: return "Neutral"
     sma200 = price_series.rolling(200).mean().iloc[-1]
     return "Bullish" if price_series.iloc[-1] > sma200 else "Bearish"
 
-def get_stock_strategy_signal(porter_score, trend):
+def get_strategy_signal(porter_score, trend):
     if porter_score >= 8 and trend == "Bullish": return "🚀 SWEET SPOT", "Qualität wird erkannt"
     elif porter_score >= 7 and trend == "Bearish": return "💎 VALUE CHANCE", "Qualität irrational abgestraft"
     elif porter_score <= 4 and trend == "Bullish": return "⚠️ JUNK RALLY", "Hype ohne Qualität"
     else: return "⚪ Neutral", "Beobachten"
 
-# --- LOGIK FÜR ETFS ---
-def analyze_etf_metrics(name, ticker, history):
-    if history.empty or len(history) < 200: return None
+def calculate_simulation(ticker, price_series, start_date, invest_amount):
+    """Berechnet den heutigen Wert eines Investments."""
+    if price_series.empty: return 0, 0
     
-    curr = history.iloc[-1]
-    sma200 = history.rolling(200).mean().iloc[-1]
-    trend_dist = (curr - sma200) / sma200
+    # Finde den nächstgelegenen Preis zum Startdatum
+    # Wir nehmen den ersten Preis, der >= start_date ist
+    subset = price_series[price_series.index >= pd.to_datetime(start_date)]
     
-    volatility = history.pct_change().tail(30).std() * (252**0.5)
-    
-    start_p = history.iloc[0]
-    perf_1y = (curr - start_p) / start_p
-    
-    dd = (curr - history.max()) / history.max()
-    
-    signal = "⚪ Neutral"
-    if trend_dist > 0.05 and perf_1y > 0.10:
-        if volatility < 0.15: signal = "🚀 COMPOUNDER"
-        else: signal = "🔥 MOMENTUM"
-    elif trend_dist < -0.05:
-        if dd < -0.20: signal = "⚠️ DIP / CRASH"
-        else: signal = "❄️ COOLING"
+    if subset.empty:
+        return 0, 0 # Daten reichen nicht so weit zurück
         
-    return {
-        "Name": name, "Ticker": ticker, "Preis": curr, "Signal": signal,
-        "Trend": trend_dist, "Vola": volatility, "Perf 1Y": perf_1y, "Drawdown": dd
-    }
-
-# --- 4. DATA LOADER FUNCTIONS ---
-
-@st.cache_data
-def scan_stocks_market():
-    all_tickers = []
-    t_map = {}
-    for sec, comps in STOCK_SECTORS.items():
-        for n, t in comps.items():
-            all_tickers.append(t)
-            t_map[t] = {'name': n, 'sector': sec}
-            
-    start = datetime.now() - timedelta(days=400)
-    prices = yf.download(all_tickers, start=start, progress=False)['Close']
+    start_price = subset.iloc[0]
+    current_price = price_series.iloc[-1]
     
-    results = []
-    for t in all_tickers:
-        try:
-            stock = yf.Ticker(t)
-            info = stock.info
-            score = calculate_porter_score(info)
-            trend = get_stock_trend_signal(prices[t].dropna()) if t in prices.columns else "Neutral"
-            sig, desc = get_stock_strategy_signal(score, trend)
-            
-            results.append({
-                "Unternehmen": t_map[t]['name'], 
-                "Ticker": t, # <--- NEU
-                "Sektor": t_map[t]['sector'],
-                "Porter Score": score, "Trend": trend, "Signal": sig, "Info": desc,
-                "KGV": info.get('trailingPE', 0), "Marge": info.get('grossMargins', 0)
-            })
-        except: continue
-    return pd.DataFrame(results), prices
+    shares = invest_amount / start_price
+    current_value = shares * current_price
+    profit = current_value - invest_amount
+    
+    return current_value, profit
+
+# --- 4. DATA LOADER ---
 
 @st.cache_data
-def scan_etfs_market():
+def load_market_data(mode_type):
+    """Lädt Daten für Aktien oder ETFs für 5 Jahre (für Simulation)."""
     all_tickers = []
     t_map = {}
-    for sec, comps in ETF_SECTORS.items():
+    
+    sectors = STOCK_SECTORS if mode_type == "Aktien" else ETF_SECTORS
+    
+    for sec, comps in sectors.items():
         for n, t in comps.items():
             all_tickers.append(t)
             t_map[t] = {'name': n, 'sector': sec}
             
-    prices = yf.download(all_tickers, period="1y", progress=False)['Close']
-    results = []
-    for t in all_tickers:
-        try:
-            if t in prices.columns:
-                res = analyze_etf_metrics(t_map[t]['name'], t, prices[t].dropna())
-                if res:
-                    res['Sektor'] = t_map[t]['sector']
-                    results.append(res)
-        except: continue
-    return pd.DataFrame(results), prices
+    # Wir laden 5 Jahre History für die Simulation
+    prices = yf.download(all_tickers, period="5y", progress=False)['Close']
+    
+    # Helper DataFrame
+    return prices, t_map
 
-# --- 5. HAUPTNAVIGATION ---
+# --- 5. HAUPTNAVIGATION & SIMULATOR INPUTS ---
 
-mode = st.sidebar.radio("🔍 Modus wählen:", ["🏢 Aktien (Porter & Strategie)", "🌐 ETFs (Trend & Risiko)"])
+st.sidebar.header("🔍 Modus")
+mode = st.sidebar.radio("Ansicht wählen:", ["🏢 Aktien", "🌐 ETFs"])
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Datenquelle: Yahoo Finance")
+st.sidebar.header("💰 Zeitmaschine (Simulator)")
+st.sidebar.caption("Prüfe: Was wäre aus meinem Geld geworden?")
 
-# --- 6. VIEW: AKTIEN ---
+# Simulator Inputs
+max_date = datetime.now() - timedelta(days=1)
+min_date = datetime.now() - timedelta(days=365*5) # Max 5 Jahre zurück
 
-if "Aktien" in mode:
-    st.markdown("### 🏢 Aktien-Scanner: Qualität & Marktpsychologie")
-    st.markdown("Kombination aus **Michael Porters Wettbewerbsstrategie** (Moat) und **Rationalen Erwartungen** (Trend).")
-    
-    with st.spinner("Analysiere Aktienmarkt (Porter-Score & Trends)..."):
-        stock_df, stock_prices = scan_stocks_market()
-        
-    # KPI Cards
-    c1, c2, c3 = st.columns(3)
-    c1.metric("🚀 Sweet Spots", len(stock_df[stock_df['Signal'].str.contains("SWEET")]), "Qualität + Trend")
-    c2.metric("💎 Value Chancen", len(stock_df[stock_df['Signal'].str.contains("VALUE")]), "Qualität günstig")
-    c3.metric("⚠️ Junk Rallys", len(stock_df[stock_df['Signal'].str.contains("JUNK")]), "Schlechte Qualität steigt")
-    
-    # Tabelle
-    def style_stock(v):
-        if 'SWEET' in v: return 'background-color: #1f77b4; color: white'
-        if 'VALUE' in v: return 'background-color: #2ca02c; color: white'
-        if 'JUNK' in v: return 'background-color: #d62728; color: white'
-        return ''
+sim_start_date = st.sidebar.date_input(
+    "Startdatum Investment:",
+    value=datetime.now() - timedelta(days=365), # Default: 1 Jahr
+    min_value=min_date,
+    max_value=max_date
+)
 
-    # Spaltenauswahl für die Anzeige
-    display_cols = ['Unternehmen', 'Ticker', 'Signal', 'Porter Score', 'Trend', 'KGV', 'Marge', 'Sektor']
-    
-    st.dataframe(
-        stock_df[display_cols].style.applymap(style_stock, subset=['Signal']),
-        column_config={
-            "Ticker": st.column_config.TextColumn("Kürzel", width="small"),
-            "Porter Score": st.column_config.ProgressColumn("Porter Score", min_value=0, max_value=10, format="%d"),
-            "Marge": st.column_config.NumberColumn("Bruttomarge", format="%.1f%%"),
-            "KGV": st.column_config.NumberColumn("KGV", format="%.1f"),
-        }, use_container_width=True, height=500, hide_index=True
-    )
-    
-    st.divider()
-    
-    # Detail Section
-    st.subheader("🔍 Sektor Deep-Dive")
-    sec_select = st.selectbox("Sektor wählen:", list(STOCK_SECTORS.keys()))
-    
-    # Chart
-    tickers = list(STOCK_SECTORS[sec_select].values())
-    valid = [t for t in tickers if t in stock_prices.columns]
-    
-    if valid:
-        subset = stock_prices[valid].dropna(how='all')
-        if not subset.empty:
-            norm = subset / subset.iloc[0] * 100
-            st.line_chart(norm)
-    
-    # Erklärung
-    with st.expander("ℹ️ Wie funktioniert der Porter-Score?"):
-        st.write("""
-        Der Score (0-10) misst die strategische Stärke:
-        * **Pricing Power:** Hohe Bruttomarge (>50%) = 3 Punkte.
-        * **Burggraben (Moat):** Hoher ROE (>20%) = 3 Punkte.
-        * **Effizienz:** Hohe operative Marge = 2 Punkte.
-        * **Sicherheit:** Geringe Schulden = 2 Punkte.
-        """)
+sim_amount = st.sidebar.number_input(
+    "Investierter Betrag (€):",
+    min_value=100,
+    max_value=3000,
+    value=500,
+    step=100
+)
 
-# --- 7. VIEW: ETFS ---
+# --- 6. DATENVERARBEITUNG & TABELLEN ERSTELLUNG ---
 
-elif "ETFs" in mode:
-    st.markdown("### 🌐 ETF-Scanner: Trend & Risiko")
-    st.markdown("Fokus auf **Momentum, Volatilität und Drawdowns**, da ETFs keine klassischen Bilanzen haben.")
-    
-    with st.spinner("Analysiere ETF Universum..."):
-        etf_df, etf_prices = scan_etfs_market()
-        
-    # KPI Cards
-    c1, c2, c3 = st.columns(3)
-    best = etf_df.loc[etf_df['Perf 1Y'].idxmax()]
-    safe = etf_df.loc[etf_df['Vola'].idxmin()]
-    dip = etf_df.loc[etf_df['Drawdown'].idxmin()]
-    
-    # Zeige Name + Ticker in der Metric
-    c1.metric(f"🏆 Top Perf: {best['Name']} ({best['Ticker']})", f"{best['Perf 1Y']:.1%}")
-    c2.metric(f"🛡️ Sicherster: {safe['Name']} ({safe['Ticker']})", f"Vola: {safe['Vola']:.1%}")
-    c3.metric(f"📉 Tiefster Dip: {dip['Name']} ({dip['Ticker']})", f"{dip['Drawdown']:.1%}")
-    
-    # Tabelle
-    def style_etf(v):
-        if 'COMPOUNDER' in v: return 'background-color: #2ca02c; color: white'
-        if 'MOMENTUM' in v: return 'background-color: #1f77b4; color: white'
-        if 'CRASH' in v: return 'background-color: #d62728; color: white'
-        if 'COOLING' in v: return 'background-color: orange; color: black'
-        return ''
+# Daten laden
+prices, ticker_map = load_market_data(mode)
 
-    display_cols_etf = ['Name', 'Ticker', 'Signal', 'Preis', 'Perf 1Y', 'Trend', 'Vola', 'Drawdown', 'Sektor']
+# Analyse DataFrame bauen
+results = []
 
-    st.dataframe(
-        etf_df[display_cols_etf].style.applymap(style_etf, subset=['Signal']),
-        column_config={
-            "Ticker": st.column_config.TextColumn("Kürzel", width="small"),
-            "Perf 1Y": st.column_config.ProgressColumn("Perf (1J)", min_value=-0.5, max_value=0.5, format="%.1f%%"),
-            "Trend": st.column_config.NumberColumn("Trend (SMA200)", format="%.1f%%"),
-            "Vola": st.column_config.NumberColumn("Risiko (Vola)", format="%.1f%%"),
-            "Drawdown": st.column_config.NumberColumn("Max Drawdown", format="%.1f%%"),
-            "Preis": st.column_config.NumberColumn("Kurs", format="%.2f"),
-        }, use_container_width=True, height=600, hide_index=True
-    )
+# Spinner nur beim ersten Laden
+with st.spinner(f"Analysiere {mode} & berechne Simulation..."):
     
-    st.divider()
-    
-    # Detail Section
-    st.subheader("📈 Vergleichs-Chart")
-    
-    # Hier bauen wir eine Liste "Name (Ticker)" für die Auswahlbox
-    etf_df['Display_Name'] = etf_df['Name'] + " (" + etf_df['Ticker'] + ")"
-    
-    compare_select = st.multiselect(
-        "ETFs vergleichen:", 
-        etf_df['Display_Name'].unique(), 
-        default=etf_df['Display_Name'].head(3).tolist()
-    )
-    
-    # Chart Logic
-    if compare_select:
-        # Rückübersetzung Display_Name -> Ticker
-        sel_tickers = etf_df[etf_df['Display_Name'].isin(compare_select)]['Ticker'].tolist()
-        
-        chart_data = etf_prices[sel_tickers].dropna()
-        if not chart_data.empty:
-            norm_chart = chart_data / chart_data.iloc[0] * 100
-            st.line_chart(norm_chart)
+    for ticker in ticker_map.keys():
+        try:
+            if ticker not in prices.columns: continue
             
-    # Erklärung
-    with st.expander("ℹ️ Erklärung der ETF-Signale"):
-        st.write("""
-        * **🚀 COMPOUNDER:** Stetiger Aufwärtstrend bei geringem Risiko (Vola < 15%).
-        * **🔥 MOMENTUM:** Starker Anstieg, aber hohe Schwankung.
-        * **❄️ COOLING:** Trend leicht gebrochen, abwarten.
-        * **⚠️ DIP / CRASH:** Tief im Minus (>20% vom Hoch).
-        """)
+            # Preisreihe bereinigen
+            series = prices[ticker].dropna()
+            if series.empty: continue
+            
+            # 1. Simulation berechnen
+            curr_val, profit = calculate_simulation(ticker, series, sim_start_date, sim_amount)
+            
+            # Basis Daten
+            row = {
+                "Unternehmen": ticker_map[ticker]['name'],
+                "Ticker": ticker,
+                "Sektor": ticker_map[ticker]['sector'],
+                "Kurs aktuell": series.iloc[-1],
+                "Invest Start": sim_amount,
+                "Wert heute": curr_val,
+                "Gewinn/Verlust": profit
+            }
+
+            # 2. Spezifische Analyse je nach Modus
+            if mode == "Aktien":
+                # Porter & Trend
+                # Info laden (Achtung: macht es langsamer, daher try/except)
+                try:
+                    info = yf.Ticker(ticker).info
+                    score = calculate_porter_score(info)
+                    trend = get_trend_signal(series)
+                    sig, desc = get_strategy_signal(score, trend)
+                    
+                    row.update({
+                        "Porter Score": score,
+                        "Trend": trend,
+                        "Signal": sig,
+                        "KGV": info.get('trailingPE', 0),
+                        "Marge": info.get('grossMargins', 0)
+                    })
+                except:
+                    # Fallback falls Info failt
+                    row.update({"Signal": "⚪ Neutral", "Porter Score": 0})
+
+            else: # ETFs
+                # Trend & Risiko Metriken
+                sma200 = series.rolling(200).mean().iloc[-1]
+                trend_dist = (series.iloc[-1] - sma200) / sma200
+                vola = series.pct_change().tail(30).std() * (252**0.5)
+                dd = (series.iloc[-1] - series.max()) / series.max()
+                
+                # Einfaches Signal für ETF
+                sig = "⚪ Neutral"
+                if trend_dist > 0.05: sig = "🚀 Up-Trend"
+                elif trend_dist < -0.05: sig = "❄️ Down-Trend"
+                
+                row.update({
+                    "Signal": sig,
+                    "Trend %": trend_dist,
+                    "Vola": vola,
+                    "Drawdown": dd
+                })
+            
+            results.append(row)
+            
+        except Exception as e:
+            continue
+
+df = pd.DataFrame(results)
+
+# --- 7. ANZEIGE LOGIK ---
+
+st.markdown(f"### {mode}-Simulator")
+st.markdown(f"**Szenario:** Du hättest am **{sim_start_date.strftime('%d.%m.%Y')}** genau **{sim_amount} €** investiert.")
+
+# KPI Cards Global
+if not df.empty:
+    best_perf = df.loc[df['Gewinn/Verlust'].idxmax()]
+    worst_perf = df.loc[df['Gewinn/Verlust'].idxmin()]
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric(
+        label=f"🏆 Bester: {best_perf['Unternehmen']}",
+        value=f"{best_perf['Wert heute']:.2f} €",
+        delta=f"{best_perf['Gewinn/Verlust']:.2f} €"
+    )
+    c2.metric(
+        label=f"📉 Schlechtester: {worst_perf['Unternehmen']}",
+        value=f"{worst_perf['Wert heute']:.2f} €",
+        delta=f"{worst_perf['Gewinn/Verlust']:.2f} €"
+    )
+    
+    # Portfolio Durchschnitt
+    avg_val = df['Wert heute'].mean()
+    avg_prof = df['Gewinn/Verlust'].mean()
+    c3.metric(
+        label="Ø Durchschnitts-Portfolio",
+        value=f"{avg_val:.2f} €",
+        delta=f"{avg_prof:.2f} €"
+    )
+
+st.divider()
+
+# --- TABELLE ---
+
+def highlight_signal(val):
+    if 'SWEET' in str(val) or 'Up-Trend' in str(val): return 'background-color: #1f77b4; color: white'
+    if 'VALUE' in str(val): return 'background-color: #2ca02c; color: white'
+    if 'JUNK' in str(val) or 'Down-Trend' in str(val): return 'background-color: #d62728; color: white'
+    return ''
+
+if mode == "Aktien":
+    cols = ['Unternehmen', 'Ticker', 'Signal', 'Wert heute', 'Gewinn/Verlust', 'Porter Score', 'Trend', 'KGV', 'Sektor']
+    
+    st.dataframe(
+        df[cols].style.applymap(highlight_signal, subset=['Signal']),
+        column_config={
+            "Ticker": st.column_config.TextColumn("Kürzel", width="small"),
+            "Wert heute": st.column_config.NumberColumn("Wert heute", format="%.2f €"),
+            "Gewinn/Verlust": st.column_config.NumberColumn("G/V", format="%.2f €"),
+            "Porter Score": st.column_config.ProgressColumn("Porter Score", min_value=0, max_value=10, format="%d"),
+            "KGV": st.column_config.NumberColumn("KGV", format="%.1f"),
+        },
+        use_container_width=True,
+        hide_index=True,
+        height=600
+    )
+
+else: # ETFs
+    cols = ['Unternehmen', 'Ticker', 'Signal', 'Wert heute', 'Gewinn/Verlust', 'Trend %', 'Vola', 'Drawdown', 'Sektor']
+    
+    st.dataframe(
+        df[cols].style.applymap(highlight_signal, subset=['Signal']),
+        column_config={
+            "Ticker": st.column_config.TextColumn("Kürzel", width="small"),
+            "Wert heute": st.column_config.NumberColumn("Wert heute", format="%.2f €"),
+            "Gewinn/Verlust": st.column_config.NumberColumn("G/V", format="%.2f €"),
+            "Trend %": st.column_config.NumberColumn("Trend", format="%.1f%%"),
+            "Vola": st.column_config.NumberColumn("Vola", format="%.1f%%"),
+            "Drawdown": st.column_config.NumberColumn("Max DD", format="%.1f%%"),
+        },
+        use_container_width=True,
+        hide_index=True,
+        height=600
+    )
+
+# --- CHART BEREICH ---
+st.divider()
+st.subheader("📈 Historischer Verlauf (Simulation)")
+
+# Auswahlbox
+comp_select = st.multiselect(
+    "Vergleiche Entwicklung im Simulator-Zeitraum:",
+    df['Unternehmen'].unique(),
+    default=df['Unternehmen'].head(3).tolist()
+)
+
+if comp_select:
+    # Ticker holen
+    sel_tickers = df[df['Unternehmen'].isin(comp_select)]['Ticker'].tolist()
+    
+    # Daten schneiden ab sim_start_date
+    chart_data = prices[sel_tickers].copy()
+    chart_data = chart_data[chart_data.index >= pd.to_datetime(sim_start_date)]
+    
+    if not chart_data.empty:
+        # Rebase auf Start-Investment (500€ = 100%)
+        # Formel: (Preis_t / Preis_0) * Investment
+        sim_chart = (chart_data / chart_data.iloc[0]) * sim_amount
+        st.line_chart(sim_chart)
+        st.caption(f"Entwicklung des Startkapitals von {sim_amount} € über die Zeit.")
