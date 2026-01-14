@@ -4,12 +4,14 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-# --- SEITEN KONFIGURATION ---
-st.set_page_config(page_title="Strategic Market Radar", page_icon="🧠", layout="wide")
-st.title("🧠 Strategic Market Radar: Porter & Rationale Erwartungen")
+# --- 1. SEITEN KONFIGURATION (MUSS GANZ OBEN STEHEN) ---
+st.set_page_config(page_title="Global Market Radar", page_icon="📡", layout="wide")
+st.title("📡 Global Market Radar: Aktien & ETFs")
 
-# --- DATEN DEFINITIONEN (ALLE SEKTOREN) ---
-SECTORS = {
+# --- 2. DATEN DEFINITIONEN ---
+
+# A) AKTIEN SEKTOREN
+STOCK_SECTORS = {
     "✈️ Luft- & Raumfahrt": {
         'Airbus': 'AIR.PA', 'Boeing': 'BA', 'Lockheed Martin': 'LMT',
         'Rheinmetall': 'RHM.DE', 'Safran': 'SAF.PA', 'MTU Aero': 'MTX.DE',
@@ -43,174 +45,265 @@ SECTORS = {
     }
 }
 
-# --- ANALYSE LOGIK ---
+# B) ETF SEKTOREN
+ETF_SECTORS = {
+    "🌍 Welt & Broad Market": {
+        'S&P 500': 'VOO', 'MSCI World': 'URTH', 'Nasdaq 100': 'QQQ',
+        'Total World': 'VT', 'Europe Stoxx 600': 'EXSA.DE', 'DAX 40': 'GDAXI'
+    },
+    "🚀 Tech & Innovation": {
+        'Semiconductor': 'SOXX', 'Cyber Security': 'CIBR', 'AI & Robotics': 'BOTZ',
+        'Clean Energy': 'ICLN', 'Ark Innovation': 'ARKK'
+    },
+    "💰 Dividenden & Value": {
+        'High Dividend': 'VYM', 'Div. Aristocrats': 'NOBL', 'JPMorgan Premium': 'JEPI'
+    },
+    "🌏 Regionen": {
+        'Emerging Markets': 'VWO', 'China Large-Cap': 'FXI', 'India': 'EPI', 'Japan': 'EWJ'
+    },
+    "🛡️ Bonds & Gold": {
+        'US Treasury 20+Y': 'TLT', 'Corp Bonds': 'LQD', 'Gold': 'GLD', 'Silver': 'SLV'
+    },
+    "₿ Crypto": {
+        'Bitcoin Strategy': 'BITO', 'Ether Strategy': 'EETH'
+    }
+}
 
+# --- 3. ANALYSE LOGIKEN ---
+
+# --- LOGIK FÜR AKTIEN (PORTER & RATIONALITÄT) ---
 def calculate_porter_score(info):
-    """Berechnet Score (0-10) basierend auf Wettbewerbsvorteilen."""
     score = 0
-    # 1. Pricing Power (Gross Margin)
+    # 1. Pricing Power
     gm = info.get('grossMargins', 0)
     if gm and gm > 0.50: score += 3
     elif gm and gm > 0.30: score += 2
     elif gm and gm < 0.10: score -= 1
-
-    # 2. Barriers to Entry (ROE)
+    # 2. Barriers (ROE)
     roe = info.get('returnOnEquity', 0)
     if roe and roe > 0.20: score += 3
     elif roe and roe > 0.12: score += 1
-    
     # 3. Operative Effizienz
     om = info.get('operatingMargins', 0)
     if om and om > 0.15: score += 2
-    
-    # 4. Finanzielle Stärke (Schulden)
+    # 4. Finanzielle Stärke
     de = info.get('debtToEquity', 100)
     if de and de < 80: score += 2
-    
     return max(0, min(10, score))
 
-def get_trend_signal(price_series):
-    """Bestimmt den Trend (Bullish/Bearish) anhand SMA200."""
+def get_stock_trend_signal(price_series):
     if len(price_series) < 200: return "Neutral"
     sma200 = price_series.rolling(200).mean().iloc[-1]
-    current = price_series.iloc[-1]
-    return "Bullish" if current > sma200 else "Bearish"
+    return "Bullish" if price_series.iloc[-1] > sma200 else "Bearish"
 
-def get_special_indicator(porter_score, trend):
-    """Die strategische Matrix-Logik."""
-    if porter_score >= 8 and trend == "Bullish":
-        return "🚀 SWEET SPOT", "Qualität wird erkannt (Momentum)"
-    elif porter_score >= 7 and trend == "Bearish":
-        return "💎 VALUE CHANCE", "Qualität irrational abgestraft?"
-    elif porter_score <= 4 and trend == "Bullish":
-        return "⚠️ JUNK RALLY", "Vorsicht: Hype bei schlechter Qualität"
-    else:
-        return "⚪ Neutral", "Beobachten"
+def get_stock_strategy_signal(porter_score, trend):
+    if porter_score >= 8 and trend == "Bullish": return "🚀 SWEET SPOT", "Qualität wird erkannt"
+    elif porter_score >= 7 and trend == "Bearish": return "💎 VALUE CHANCE", "Qualität irrational abgestraft"
+    elif porter_score <= 4 and trend == "Bullish": return "⚠️ JUNK RALLY", "Hype ohne Qualität"
+    else: return "⚪ Neutral", "Beobachten"
 
-# --- DATEN LADEN (BATCH) ---
+# --- LOGIK FÜR ETFS (TREND & RISIKO) ---
+def analyze_etf_metrics(name, ticker, history):
+    if history.empty or len(history) < 200: return None
+    
+    curr = history.iloc[-1]
+    sma200 = history.rolling(200).mean().iloc[-1]
+    trend_dist = (curr - sma200) / sma200
+    
+    # Vola (30 Tage)
+    volatility = history.pct_change().tail(30).std() * (252**0.5)
+    
+    # 1 Jahr Perf
+    start_p = history.iloc[0]
+    perf_1y = (curr - start_p) / start_p
+    
+    # Drawdown
+    dd = (curr - history.max()) / history.max()
+    
+    signal = "⚪ Neutral"
+    if trend_dist > 0.05 and perf_1y > 0.10:
+        if volatility < 0.15: signal = "🚀 COMPOUNDER"
+        else: signal = "🔥 MOMENTUM"
+    elif trend_dist < -0.05:
+        if dd < -0.20: signal = "⚠️ DIP / CRASH"
+        else: signal = "❄️ COOLING"
+        
+    return {
+        "Name": name, "Ticker": ticker, "Preis": curr, "Signal": signal,
+        "Trend": trend_dist, "Vola": volatility, "Perf 1Y": perf_1y, "Drawdown": dd
+    }
+
+# --- 4. DATA LOADER FUNCTIONS ---
+
 @st.cache_data
-def scan_whole_market():
-    # 1. Alle Ticker sammeln
+def scan_stocks_market():
     all_tickers = []
-    ticker_map = {}
-    for sector, companies in SECTORS.items():
-        for name, ticker in companies.items():
-            all_tickers.append(ticker)
-            ticker_map[ticker] = {'name': name, 'sector': sector}
+    t_map = {}
+    for sec, comps in STOCK_SECTORS.items():
+        for n, t in comps.items():
+            all_tickers.append(t)
+            t_map[t] = {'name': n, 'sector': sec}
             
-    # 2. Preisdaten laden (Schnell via Batch)
     start = datetime.now() - timedelta(days=400)
     prices = yf.download(all_tickers, start=start, progress=False)['Close']
     
-    # 3. Fundamentaldaten & Analyse (Schleife)
     results = []
-    
-    # Hinweis: Wir iterieren hier, da wir 'info' brauchen. 
-    # Um es schnell zu halten, nutzen wir Ticker-Objekte.
-    for ticker in all_tickers:
+    for t in all_tickers:
         try:
-            # Info laden
-            stock = yf.Ticker(ticker)
-            info = stock.info # Das dauert am längsten
-            
-            # Analysen
+            stock = yf.Ticker(t)
+            info = stock.info
             score = calculate_porter_score(info)
+            trend = get_stock_trend_signal(prices[t].dropna()) if t in prices.columns else "Neutral"
+            sig, desc = get_stock_strategy_signal(score, trend)
             
-            # Trend prüfen
-            if ticker in prices.columns:
-                trend = get_trend_signal(prices[ticker].dropna())
-            else:
-                trend = "Neutral"
-                
-            # Spezial-Indikator
-            signal_title, signal_desc = get_special_indicator(score, trend)
-            
-            # Daten für Tabelle
             results.append({
-                "Unternehmen": ticker_map[ticker]['name'],
-                "Sektor": ticker_map[ticker]['sector'],
-                "Porter Score": score,
-                "Trend (SMA200)": trend,
-                "Strategie-Signal": signal_title,
-                "Info": signal_desc,
-                "KGV": info.get('trailingPE', 0),
-                "Marge": info.get('grossMargins', 0)
+                "Unternehmen": t_map[t]['name'], "Sektor": t_map[t]['sector'],
+                "Porter Score": score, "Trend": trend, "Signal": sig, "Info": desc,
+                "KGV": info.get('trailingPE', 0), "Marge": info.get('grossMargins', 0)
             })
-        except:
-            continue
-            
+        except: continue
     return pd.DataFrame(results), prices
 
-# --- UI STARTSEITE ---
+@st.cache_data
+def scan_etfs_market():
+    all_tickers = []
+    t_map = {}
+    for sec, comps in ETF_SECTORS.items():
+        for n, t in comps.items():
+            all_tickers.append(t)
+            t_map[t] = {'name': n, 'sector': sec}
+            
+    prices = yf.download(all_tickers, period="1y", progress=False)['Close']
+    results = []
+    for t in all_tickers:
+        try:
+            if t in prices.columns:
+                res = analyze_etf_metrics(t_map[t]['name'], t, prices[t].dropna())
+                if res:
+                    res['Sektor'] = t_map[t]['sector']
+                    results.append(res)
+        except: continue
+    return pd.DataFrame(results), prices
 
-st.markdown("""
-### 🔍 Der Markt-Scanner (Gesamtüberblick)
-Diese Tabelle filtert **alle Unternehmen** nach der Kombination aus **Qualität (Porter)** und **Marktpsychologie (Trend)**.
-""")
+# --- 5. HAUPTNAVIGATION ---
 
-# Spinner, da der erste Load 30-60sek dauern kann (wegen yfinance API Limits)
-with st.spinner("Scanne den globalen Markt... (Dies dauert beim ersten Mal ca. 30 Sekunden)"):
-    market_df, price_data = scan_whole_market()
+mode = st.sidebar.radio("🔍 Modus wählen:", ["🏢 Aktien (Porter & Strategie)", "🌐 ETFs (Trend & Risiko)"])
 
-# --- KPI KARTEN (ZUSAMMENFASSUNG) ---
-col1, col2, col3 = st.columns(3)
-sweet_spots = market_df[market_df['Strategie-Signal'].str.contains("SWEET")]
-value_plays = market_df[market_df['Strategie-Signal'].str.contains("VALUE")]
-junk_rallys = market_df[market_df['Strategie-Signal'].str.contains("JUNK")]
+st.sidebar.markdown("---")
+st.sidebar.caption("Datenquelle: Yahoo Finance")
 
-col1.metric("🚀 Sweet Spots", len(sweet_spots), "Kaufen & Laufen lassen")
-col2.metric("💎 Value Chancen", len(value_plays), "Antizyklisch prüfen")
-col3.metric("⚠️ Junk Rallys", len(junk_rallys), "Vorsicht geboten", delta_color="inverse")
+# --- 6. RENDER LOGIC: AKTIEN ---
 
-# --- DIE GROSSE TABELLE ---
-st.subheader("📋 Strategische Matrix")
-
-# Styling Funktion für die Tabelle
-def highlight_signal(val):
-    color = ''
-    if 'SWEET' in val: color = 'background-color: #1f77b4; color: white' # Blau
-    elif 'VALUE' in val: color = 'background-color: #2ca02c; color: white' # Grün
-    elif 'JUNK' in val: color = 'background-color: #d62728; color: white' # Rot
-    return color
-
-# DataFrame anzeigen
-st.dataframe(
-    market_df.style.applymap(highlight_signal, subset=['Strategie-Signal']),
-    column_config={
-        "Porter Score": st.column_config.ProgressColumn(
-            "Porter Qualität",
-            help="Score 0-10 basierend auf Margen, ROE & Bilanz",
-            format="%d",
-            min_value=0,
-            max_value=10,
-        ),
-        "Marge": st.column_config.NumberColumn("Brutto-Marge", format="%.1f%%"),
-        "KGV": st.column_config.NumberColumn("KGV", format="%.1f"),
-    },
-    use_container_width=True,
-    height=500
-)
-
-st.divider()
-
-# --- SEKTOR DETAILS (WIE VORHER) ---
-st.subheader("📂 Sektor-Deep-Dive")
-selected_sector = st.selectbox("Sektor für Detail-Chart wählen:", list(SECTORS.keys()))
-
-# Chart Logik
-if selected_sector:
-    sector_tickers = list(SECTORS[selected_sector].values())
-    # Filtern der Preisdaten
-    valid_tickers = [t for t in sector_tickers if t in price_data.columns]
+if "Aktien" in mode:
+    st.markdown("### 🏢 Aktien-Scanner: Qualität & Marktpsychologie")
+    st.markdown("Kombination aus **Michael Porters Wettbewerbsstrategie** (Moat) und **Rationalen Erwartungen** (Trend).")
     
-    if valid_tickers:
-        subset = price_data[valid_tickers].dropna(how='all')
-        # Rebase auf 100
-        normalized = subset / subset.iloc[0] * 100
+    with st.spinner("Analysiere Aktienmarkt (Porter-Score & Trends)..."):
+        stock_df, stock_prices = scan_stocks_market()
         
-        st.line_chart(normalized)
+    # KPI Cards
+    c1, c2, c3 = st.columns(3)
+    c1.metric("🚀 Sweet Spots", len(stock_df[stock_df['Signal'].str.contains("SWEET")]), "Qualität + Trend")
+    c2.metric("💎 Value Chancen", len(stock_df[stock_df['Signal'].str.contains("VALUE")]), "Qualität günstig")
+    c3.metric("⚠️ Junk Rallys", len(stock_df[stock_df['Signal'].str.contains("JUNK")]), "Schlechte Qualität steigt")
+    
+    # Tabelle
+    def style_stock(v):
+        if 'SWEET' in v: return 'background-color: #1f77b4; color: white'
+        if 'VALUE' in v: return 'background-color: #2ca02c; color: white'
+        if 'JUNK' in v: return 'background-color: #d62728; color: white'
+        return ''
+
+    st.dataframe(
+        stock_df.style.applymap(style_stock, subset=['Signal']),
+        column_config={
+            "Porter Score": st.column_config.ProgressColumn("Porter Score", min_value=0, max_value=10, format="%d"),
+            "Marge": st.column_config.NumberColumn("Bruttomarge", format="%.1f%%"),
+            "KGV": st.column_config.NumberColumn("KGV", format="%.1f"),
+        }, use_container_width=True, height=500
+    )
+    
+    st.divider()
+    
+    # Detail Section
+    st.subheader("🔍 Sektor Deep-Dive")
+    sec_select = st.selectbox("Sektor wählen:", list(STOCK_SECTORS.keys()))
+    
+    # Chart
+    tickers = list(STOCK_SECTORS[sec_select].values())
+    valid = [t for t in tickers if t in stock_prices.columns]
+    if valid:
+        subset = stock_prices[valid].dropna(how='all')
+        norm = subset / subset.iloc[0] * 100
+        st.line_chart(norm)
+    
+    # Erklärung
+    with st.expander("ℹ️ Wie funktioniert der Porter-Score?"):
+        st.write("""
+        Der Score (0-10) misst die strategische Stärke:
+        * **Pricing Power:** Hohe Bruttomarge (>50%) = 3 Punkte.
+        * **Burggraben (Moat):** Hoher ROE (>20%) = 3 Punkte.
+        * **Effizienz:** Hohe operative Marge = 2 Punkte.
+        * **Sicherheit:** Geringe Schulden = 2 Punkte.
+        """)
+
+# --- 7. RENDER LOGIC: ETFS ---
+
+elif "ETFs" in mode:
+    st.markdown("### 🌐 ETF-Scanner: Trend & Risiko")
+    st.markdown("Fokus auf **Momentum, Volatilität und Drawdowns**, da ETFs keine klassischen Bilanzen haben.")
+    
+    with st.spinner("Analysiere ETF Universum..."):
+        etf_df, etf_prices = scan_etfs_market()
         
-        # Kleine Liste der Firmen im Sektor mit Score
-        st.write("Werte im Sektor:")
-        sector_df = market_df[market_df['Sektor'] == selected_sector][['Unternehmen', 'Porter Score', 'Strategie-Signal']]
-        st.dataframe(sector_df, use_container_width=True)
+    # KPI Cards
+    c1, c2, c3 = st.columns(3)
+    best = etf_df.loc[etf_df['Perf 1Y'].idxmax()]
+    safe = etf_df.loc[etf_df['Vola'].idxmin()]
+    dip = etf_df.loc[etf_df['Drawdown'].idxmin()]
+    
+    c1.metric(f"🏆 Top Perf: {best['Name']}", f"{best['Perf 1Y']:.1%}")
+    c2.metric(f"🛡️ Sicherster: {safe['Name']}", f"Vola: {safe['Vola']:.1%}")
+    c3.metric(f"📉 Tiefster Dip: {dip['Name']}", f"{dip['Drawdown']:.1%}")
+    
+    # Tabelle
+    def style_etf(v):
+        if 'COMPOUNDER' in v: return 'background-color: #2ca02c; color: white'
+        if 'MOMENTUM' in v: return 'background-color: #1f77b4; color: white'
+        if 'CRASH' in v: return 'background-color: #d62728; color: white'
+        if 'COOLING' in v: return 'background-color: orange; color: black'
+        return ''
+
+    st.dataframe(
+        etf_df[['Name', 'Signal', 'Preis', 'Perf 1Y', 'Trend', 'Vola', 'Drawdown', 'Sektor']].style.applymap(style_etf, subset=['Signal']),
+        column_config={
+            "Perf 1Y": st.column_config.ProgressColumn("Performance (1J)", min_value=-0.5, max_value=0.5, format="%.1f%%"),
+            "Trend": st.column_config.NumberColumn("Trend (vs SMA200)", format="%.1f%%"),
+            "Vola": st.column_config.NumberColumn("Risiko (Vola)", format="%.1f%%"),
+            "Drawdown": st.column_config.NumberColumn("Max Drawdown", format="%.1f%%"),
+            "Preis": st.column_config.NumberColumn("Kurs", format="%.2f"),
+        }, use_container_width=True, height=600
+    )
+    
+    st.divider()
+    
+    # Detail Section
+    st.subheader("📈 Vergleichs-Chart")
+    compare_select = st.multiselect("ETFs vergleichen:", etf_df['Name'].unique(), default=etf_df['Name'].head(3).tolist())
+    
+    # Chart Logic
+    if compare_select:
+        sel_tickers = etf_df[etf_df['Name'].isin(compare_select)]['Ticker'].tolist()
+        chart_data = etf_prices[sel_tickers].dropna()
+        if not chart_data.empty:
+            norm_chart = chart_data / chart_data.iloc[0] * 100
+            st.line_chart(norm_chart)
+            
+    # Erklärung
+    with st.expander("ℹ️ Erklärung der ETF-Signale"):
+        st.write("""
+        * **🚀 STEADY COMPOUNDER:** Stetiger Aufwärtstrend bei geringem Risiko (Vola < 15%). Ideal für Langzeit-Investoren.
+        * **🔥 MOMENTUM:** Starker Anstieg, aber hohe Schwankung.
+        * **❄️ COOLING:** Trend leicht gebrochen, abwarten.
+        * **⚠️ DIP / CRASH:** Tief im Minus (>20% vom Hoch). Nur für Turnaround-Spekulation.
+        """)
