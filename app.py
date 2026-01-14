@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
-# --- 1. SEITEN KONFIGURATION (MUSS GANZ OBEN STEHEN) ---
+# --- 1. SEITEN KONFIGURATION ---
 st.set_page_config(page_title="Global Market Radar", page_icon="📡", layout="wide")
 st.title("📡 Global Market Radar: Aktien & ETFs")
 
@@ -27,7 +27,7 @@ STOCK_SECTORS = {
     },
     "🧬 Healthcare": {
         'Novo Nordisk': 'NVO', 'Eli Lilly': 'LLY', 'Intuitive Surgical': 'ISRG',
-        'Pfizer': 'PFE', 'Johnson & Johnson': 'JNJ', 'Merck': 'MRK'
+        'Pfizer': 'PFE', 'Johnson & Johnson': 'JNJ', 'Merck US': 'MRK'
     },
     "🚗 Auto & E-Mobility": {
         'Tesla': 'TSLA', 'BYD': 'BYDDF', 'VW': 'VOW3.DE', 'Mercedes': 'MBG.DE',
@@ -71,7 +71,7 @@ ETF_SECTORS = {
 
 # --- 3. ANALYSE LOGIKEN ---
 
-# --- LOGIK FÜR AKTIEN (PORTER & RATIONALITÄT) ---
+# --- LOGIK FÜR AKTIEN ---
 def calculate_porter_score(info):
     score = 0
     # 1. Pricing Power
@@ -102,7 +102,7 @@ def get_stock_strategy_signal(porter_score, trend):
     elif porter_score <= 4 and trend == "Bullish": return "⚠️ JUNK RALLY", "Hype ohne Qualität"
     else: return "⚪ Neutral", "Beobachten"
 
-# --- LOGIK FÜR ETFS (TREND & RISIKO) ---
+# --- LOGIK FÜR ETFS ---
 def analyze_etf_metrics(name, ticker, history):
     if history.empty or len(history) < 200: return None
     
@@ -110,14 +110,11 @@ def analyze_etf_metrics(name, ticker, history):
     sma200 = history.rolling(200).mean().iloc[-1]
     trend_dist = (curr - sma200) / sma200
     
-    # Vola (30 Tage)
     volatility = history.pct_change().tail(30).std() * (252**0.5)
     
-    # 1 Jahr Perf
     start_p = history.iloc[0]
     perf_1y = (curr - start_p) / start_p
     
-    # Drawdown
     dd = (curr - history.max()) / history.max()
     
     signal = "⚪ Neutral"
@@ -157,7 +154,9 @@ def scan_stocks_market():
             sig, desc = get_stock_strategy_signal(score, trend)
             
             results.append({
-                "Unternehmen": t_map[t]['name'], "Sektor": t_map[t]['sector'],
+                "Unternehmen": t_map[t]['name'], 
+                "Ticker": t, # <--- NEU
+                "Sektor": t_map[t]['sector'],
                 "Porter Score": score, "Trend": trend, "Signal": sig, "Info": desc,
                 "KGV": info.get('trailingPE', 0), "Marge": info.get('grossMargins', 0)
             })
@@ -192,7 +191,7 @@ mode = st.sidebar.radio("🔍 Modus wählen:", ["🏢 Aktien (Porter & Strategie
 st.sidebar.markdown("---")
 st.sidebar.caption("Datenquelle: Yahoo Finance")
 
-# --- 6. RENDER LOGIC: AKTIEN ---
+# --- 6. VIEW: AKTIEN ---
 
 if "Aktien" in mode:
     st.markdown("### 🏢 Aktien-Scanner: Qualität & Marktpsychologie")
@@ -214,13 +213,17 @@ if "Aktien" in mode:
         if 'JUNK' in v: return 'background-color: #d62728; color: white'
         return ''
 
+    # Spaltenauswahl für die Anzeige
+    display_cols = ['Unternehmen', 'Ticker', 'Signal', 'Porter Score', 'Trend', 'KGV', 'Marge', 'Sektor']
+    
     st.dataframe(
-        stock_df.style.applymap(style_stock, subset=['Signal']),
+        stock_df[display_cols].style.applymap(style_stock, subset=['Signal']),
         column_config={
+            "Ticker": st.column_config.TextColumn("Kürzel", width="small"),
             "Porter Score": st.column_config.ProgressColumn("Porter Score", min_value=0, max_value=10, format="%d"),
             "Marge": st.column_config.NumberColumn("Bruttomarge", format="%.1f%%"),
             "KGV": st.column_config.NumberColumn("KGV", format="%.1f"),
-        }, use_container_width=True, height=500
+        }, use_container_width=True, height=500, hide_index=True
     )
     
     st.divider()
@@ -232,10 +235,12 @@ if "Aktien" in mode:
     # Chart
     tickers = list(STOCK_SECTORS[sec_select].values())
     valid = [t for t in tickers if t in stock_prices.columns]
+    
     if valid:
         subset = stock_prices[valid].dropna(how='all')
-        norm = subset / subset.iloc[0] * 100
-        st.line_chart(norm)
+        if not subset.empty:
+            norm = subset / subset.iloc[0] * 100
+            st.line_chart(norm)
     
     # Erklärung
     with st.expander("ℹ️ Wie funktioniert der Porter-Score?"):
@@ -247,7 +252,7 @@ if "Aktien" in mode:
         * **Sicherheit:** Geringe Schulden = 2 Punkte.
         """)
 
-# --- 7. RENDER LOGIC: ETFS ---
+# --- 7. VIEW: ETFS ---
 
 elif "ETFs" in mode:
     st.markdown("### 🌐 ETF-Scanner: Trend & Risiko")
@@ -262,9 +267,10 @@ elif "ETFs" in mode:
     safe = etf_df.loc[etf_df['Vola'].idxmin()]
     dip = etf_df.loc[etf_df['Drawdown'].idxmin()]
     
-    c1.metric(f"🏆 Top Perf: {best['Name']}", f"{best['Perf 1Y']:.1%}")
-    c2.metric(f"🛡️ Sicherster: {safe['Name']}", f"Vola: {safe['Vola']:.1%}")
-    c3.metric(f"📉 Tiefster Dip: {dip['Name']}", f"{dip['Drawdown']:.1%}")
+    # Zeige Name + Ticker in der Metric
+    c1.metric(f"🏆 Top Perf: {best['Name']} ({best['Ticker']})", f"{best['Perf 1Y']:.1%}")
+    c2.metric(f"🛡️ Sicherster: {safe['Name']} ({safe['Ticker']})", f"Vola: {safe['Vola']:.1%}")
+    c3.metric(f"📉 Tiefster Dip: {dip['Name']} ({dip['Ticker']})", f"{dip['Drawdown']:.1%}")
     
     # Tabelle
     def style_etf(v):
@@ -274,26 +280,39 @@ elif "ETFs" in mode:
         if 'COOLING' in v: return 'background-color: orange; color: black'
         return ''
 
+    display_cols_etf = ['Name', 'Ticker', 'Signal', 'Preis', 'Perf 1Y', 'Trend', 'Vola', 'Drawdown', 'Sektor']
+
     st.dataframe(
-        etf_df[['Name', 'Signal', 'Preis', 'Perf 1Y', 'Trend', 'Vola', 'Drawdown', 'Sektor']].style.applymap(style_etf, subset=['Signal']),
+        etf_df[display_cols_etf].style.applymap(style_etf, subset=['Signal']),
         column_config={
-            "Perf 1Y": st.column_config.ProgressColumn("Performance (1J)", min_value=-0.5, max_value=0.5, format="%.1f%%"),
-            "Trend": st.column_config.NumberColumn("Trend (vs SMA200)", format="%.1f%%"),
+            "Ticker": st.column_config.TextColumn("Kürzel", width="small"),
+            "Perf 1Y": st.column_config.ProgressColumn("Perf (1J)", min_value=-0.5, max_value=0.5, format="%.1f%%"),
+            "Trend": st.column_config.NumberColumn("Trend (SMA200)", format="%.1f%%"),
             "Vola": st.column_config.NumberColumn("Risiko (Vola)", format="%.1f%%"),
             "Drawdown": st.column_config.NumberColumn("Max Drawdown", format="%.1f%%"),
             "Preis": st.column_config.NumberColumn("Kurs", format="%.2f"),
-        }, use_container_width=True, height=600
+        }, use_container_width=True, height=600, hide_index=True
     )
     
     st.divider()
     
     # Detail Section
     st.subheader("📈 Vergleichs-Chart")
-    compare_select = st.multiselect("ETFs vergleichen:", etf_df['Name'].unique(), default=etf_df['Name'].head(3).tolist())
+    
+    # Hier bauen wir eine Liste "Name (Ticker)" für die Auswahlbox
+    etf_df['Display_Name'] = etf_df['Name'] + " (" + etf_df['Ticker'] + ")"
+    
+    compare_select = st.multiselect(
+        "ETFs vergleichen:", 
+        etf_df['Display_Name'].unique(), 
+        default=etf_df['Display_Name'].head(3).tolist()
+    )
     
     # Chart Logic
     if compare_select:
-        sel_tickers = etf_df[etf_df['Name'].isin(compare_select)]['Ticker'].tolist()
+        # Rückübersetzung Display_Name -> Ticker
+        sel_tickers = etf_df[etf_df['Display_Name'].isin(compare_select)]['Ticker'].tolist()
+        
         chart_data = etf_prices[sel_tickers].dropna()
         if not chart_data.empty:
             norm_chart = chart_data / chart_data.iloc[0] * 100
@@ -302,8 +321,8 @@ elif "ETFs" in mode:
     # Erklärung
     with st.expander("ℹ️ Erklärung der ETF-Signale"):
         st.write("""
-        * **🚀 STEADY COMPOUNDER:** Stetiger Aufwärtstrend bei geringem Risiko (Vola < 15%). Ideal für Langzeit-Investoren.
+        * **🚀 COMPOUNDER:** Stetiger Aufwärtstrend bei geringem Risiko (Vola < 15%).
         * **🔥 MOMENTUM:** Starker Anstieg, aber hohe Schwankung.
         * **❄️ COOLING:** Trend leicht gebrochen, abwarten.
-        * **⚠️ DIP / CRASH:** Tief im Minus (>20% vom Hoch). Nur für Turnaround-Spekulation.
+        * **⚠️ DIP / CRASH:** Tief im Minus (>20% vom Hoch).
         """)
