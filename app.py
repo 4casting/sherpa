@@ -1,15 +1,13 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # --- 1. SEITEN KONFIGURATION ---
 st.set_page_config(page_title="Global Market Radar", page_icon="📡", layout="wide")
-st.title("📡 Global Market Radar: Analyse & Simulator")
+st.title("📡 Global Market Radar: Porter & Psychologie Simulator")
 
 # --- 2. DATEN DEFINITIONEN ---
-
 STOCK_SECTORS = {
     "✈️ Luft- & Raumfahrt": {
         'Airbus': 'AIR.PA', 'Boeing': 'BA', 'Lockheed Martin': 'LMT',
@@ -67,65 +65,85 @@ ETF_SECTORS = {
     }
 }
 
-# --- 3. ANALYSE & SIMULATION LOGIK ---
+# --- 3. ANALYSE LOGIK (SCORES) ---
 
 def calculate_porter_score(info):
+    """Strategische Stärke (0-10)"""
     score = 0
+    # 1. Pricing Power (Gross Margin)
     gm = info.get('grossMargins', 0)
     if gm and gm > 0.50: score += 3
     elif gm and gm > 0.30: score += 2
     elif gm and gm < 0.10: score -= 1
     
+    # 2. Barriers (ROE)
     roe = info.get('returnOnEquity', 0)
     if roe and roe > 0.20: score += 3
     elif roe and roe > 0.12: score += 1
     
+    # 3. Operative Effizienz
     om = info.get('operatingMargins', 0)
     if om and om > 0.15: score += 2
     
+    # 4. Finanzielle Stärke (Schulden)
     de = info.get('debtToEquity', 100)
     if de and de < 80: score += 2
+    
     return max(0, min(10, score))
 
-def get_trend_signal(price_series):
-    if len(price_series) < 200: return "Neutral"
+def calculate_psychology_score(price_series, info=None, asset_type="Stock"):
+    """Marktstimmung & Trendstärke (0-10)"""
+    score = 0
+    if len(price_series) < 200: return 5 # Neutral bei fehlenden Daten
+    
+    current = price_series.iloc[-1]
     sma200 = price_series.rolling(200).mean().iloc[-1]
-    return "Bullish" if price_series.iloc[-1] > sma200 else "Bearish"
+    sma50 = price_series.rolling(50).mean().iloc[-1]
+    
+    # 1. Langfristiger Trend (Rationaler Aufwärtstrend)
+    if current > sma200: score += 4
+    
+    # 2. Mittelfristiges Momentum (Behavioral)
+    if current > sma50: score += 3
+    
+    # 3. Stabilität / Angst-Faktor
+    if asset_type == "Stock" and info:
+        beta = info.get('beta', 1.0)
+        if beta and beta < 1.2: score += 3 # Weniger volatil als der Markt
+    else:
+        # Bei ETFs nutzen wir Vola
+        vola = price_series.pct_change().tail(30).std() * (252**0.5)
+        if vola < 0.20: score += 3
+        
+    return max(0, min(10, score))
 
-def get_strategy_signal(porter_score, trend):
-    if porter_score >= 8 and trend == "Bullish": return "🚀 SWEET SPOT", "Qualität wird erkannt"
-    elif porter_score >= 7 and trend == "Bearish": return "💎 VALUE CHANCE", "Qualität irrational abgestraft"
-    elif porter_score <= 4 and trend == "Bullish": return "⚠️ JUNK RALLY", "Hype ohne Qualität"
-    else: return "⚪ Neutral", "Beobachten"
+def get_combined_signal(porter, psych):
+    # Logik-Matrix
+    if porter >= 7 and psych >= 7: return "🚀 SWEET SPOT", "Top Qualität + Trend"
+    if porter >= 7 and psych <= 4: return "💎 VALUE CHANCE", "Qualität wird abgestraft"
+    if porter <= 4 and psych >= 7: return "⚠️ JUNK RALLY", "Hype ohne Substanz"
+    if psych <= 3: return "❄️ BEAR MARKET", "Negatives Sentiment"
+    return "⚪ Neutral", "Beobachten"
 
 def calculate_simulation(ticker, price_series, start_date, invest_amount):
-    """Berechnet den heutigen Wert eines Investments."""
     if price_series.empty: return 0, 0
-    
-    # Finde den nächstgelegenen Preis zum Startdatum
-    # Wir nehmen den ersten Preis, der >= start_date ist
     subset = price_series[price_series.index >= pd.to_datetime(start_date)]
+    if subset.empty: return 0, 0
     
-    if subset.empty:
-        return 0, 0 # Daten reichen nicht so weit zurück
-        
     start_price = subset.iloc[0]
     current_price = price_series.iloc[-1]
     
     shares = invest_amount / start_price
     current_value = shares * current_price
     profit = current_value - invest_amount
-    
     return current_value, profit
 
 # --- 4. DATA LOADER ---
 
 @st.cache_data
 def load_market_data(mode_type):
-    """Lädt Daten für Aktien oder ETFs für 5 Jahre (für Simulation)."""
     all_tickers = []
     t_map = {}
-    
     sectors = STOCK_SECTORS if mode_type == "Aktien" else ETF_SECTORS
     
     for sec, comps in sectors.items():
@@ -133,218 +151,127 @@ def load_market_data(mode_type):
             all_tickers.append(t)
             t_map[t] = {'name': n, 'sector': sec}
             
-    # Wir laden 5 Jahre History für die Simulation
     prices = yf.download(all_tickers, period="5y", progress=False)['Close']
-    
-    # Helper DataFrame
     return prices, t_map
 
-# --- 5. HAUPTNAVIGATION & SIMULATOR INPUTS ---
+# --- 5. GUI & INPUTS ---
 
 st.sidebar.header("🔍 Modus")
 mode = st.sidebar.radio("Ansicht wählen:", ["🏢 Aktien", "🌐 ETFs"])
 
 st.sidebar.markdown("---")
-st.sidebar.header("💰 Zeitmaschine (Simulator)")
-st.sidebar.caption("Prüfe: Was wäre aus meinem Geld geworden?")
+st.sidebar.header("💰 Simulator")
+sim_start_date = st.sidebar.date_input("Startdatum:", value=datetime.now() - timedelta(days=365))
+sim_amount = st.sidebar.number_input("Invest (€):", value=1000, step=100)
 
-# Simulator Inputs
-max_date = datetime.now() - timedelta(days=1)
-min_date = datetime.now() - timedelta(days=365*5) # Max 5 Jahre zurück
+# --- 6. BERECHNUNG ---
 
-sim_start_date = st.sidebar.date_input(
-    "Startdatum Investment:",
-    value=datetime.now() - timedelta(days=365), # Default: 1 Jahr
-    min_value=min_date,
-    max_value=max_date
-)
-
-sim_amount = st.sidebar.number_input(
-    "Investierter Betrag (€):",
-    min_value=100,
-    max_value=3000,
-    value=500,
-    step=100
-)
-
-# --- 6. DATENVERARBEITUNG & TABELLEN ERSTELLUNG ---
-
-# Daten laden
 prices, ticker_map = load_market_data(mode)
-
-# Analyse DataFrame bauen
 results = []
 
-# Spinner nur beim ersten Laden
-with st.spinner(f"Analysiere {mode} & berechne Simulation..."):
-    
+with st.spinner(f"Berechne Scores & Simulation für {mode}..."):
     for ticker in ticker_map.keys():
         try:
             if ticker not in prices.columns: continue
-            
-            # Preisreihe bereinigen
             series = prices[ticker].dropna()
             if series.empty: continue
             
-            # 1. Simulation berechnen
+            # Simulation
             curr_val, profit = calculate_simulation(ticker, series, sim_start_date, sim_amount)
             
-            # Basis Daten
-            row = {
+            # Scores berechnen
+            porter_score = 0
+            psych_score = 0
+            
+            if mode == "Aktien":
+                try:
+                    info = yf.Ticker(ticker).info
+                    porter_score = calculate_porter_score(info)
+                    psych_score = calculate_psychology_score(series, info, "Stock")
+                except:
+                    psych_score = calculate_psychology_score(series, None, "Stock")
+            else:
+                # ETFs haben keinen Porter-Score (setzen wir auf N/A oder Simulation)
+                # Wir nutzen Porter hier als "Risiko-Invers" oder lassen es leer
+                # Um die Logik konsistent zu halten, nennen wir es "Tech-Score"
+                psych_score = calculate_psychology_score(series, None, "ETF")
+                # Für ETFs: Porter = 10 - Vola*10 (als Dummy für Stabilität)
+                vola = series.pct_change().tail(30).std() * (252**0.5)
+                porter_score = max(0, min(10, int(10 - vola*20))) 
+            
+            sig_title, sig_desc = get_combined_signal(porter_score, psych_score)
+            
+            results.append({
                 "Unternehmen": ticker_map[ticker]['name'],
                 "Ticker": ticker,
                 "Sektor": ticker_map[ticker]['sector'],
-                "Kurs aktuell": series.iloc[-1],
-                "Invest Start": sim_amount,
                 "Wert heute": curr_val,
-                "Gewinn/Verlust": profit
-            }
-
-            # 2. Spezifische Analyse je nach Modus
-            if mode == "Aktien":
-                # Porter & Trend
-                # Info laden (Achtung: macht es langsamer, daher try/except)
-                try:
-                    info = yf.Ticker(ticker).info
-                    score = calculate_porter_score(info)
-                    trend = get_trend_signal(series)
-                    sig, desc = get_strategy_signal(score, trend)
-                    
-                    row.update({
-                        "Porter Score": score,
-                        "Trend": trend,
-                        "Signal": sig,
-                        "KGV": info.get('trailingPE', 0),
-                        "Marge": info.get('grossMargins', 0)
-                    })
-                except:
-                    # Fallback falls Info failt
-                    row.update({"Signal": "⚪ Neutral", "Porter Score": 0})
-
-            else: # ETFs
-                # Trend & Risiko Metriken
-                sma200 = series.rolling(200).mean().iloc[-1]
-                trend_dist = (series.iloc[-1] - sma200) / sma200
-                vola = series.pct_change().tail(30).std() * (252**0.5)
-                dd = (series.iloc[-1] - series.max()) / series.max()
-                
-                # Einfaches Signal für ETF
-                sig = "⚪ Neutral"
-                if trend_dist > 0.05: sig = "🚀 Up-Trend"
-                elif trend_dist < -0.05: sig = "❄️ Down-Trend"
-                
-                row.update({
-                    "Signal": sig,
-                    "Trend %": trend_dist,
-                    "Vola": vola,
-                    "Drawdown": dd
-                })
-            
-            results.append(row)
-            
-        except Exception as e:
-            continue
+                "Gewinn": profit,
+                "Porter Score": porter_score,     # <--- DA IST ER
+                "Psycho Score": psych_score,      # <--- DA IST ER
+                "Signal": sig_title
+            })
+        except: continue
 
 df = pd.DataFrame(results)
 
-# --- 7. ANZEIGE LOGIK ---
+# --- 7. ANZEIGE ---
 
-st.markdown(f"### {mode}-Simulator")
-st.markdown(f"**Szenario:** Du hättest am **{sim_start_date.strftime('%d.%m.%Y')}** genau **{sim_amount} €** investiert.")
+st.markdown(f"### {mode}-Simulator & Analyse")
 
-# KPI Cards Global
+# Top KPI
 if not df.empty:
-    best_perf = df.loc[df['Gewinn/Verlust'].idxmax()]
-    worst_perf = df.loc[df['Gewinn/Verlust'].idxmin()]
-    
+    best = df.loc[df['Gewinn'].idxmax()]
     c1, c2, c3 = st.columns(3)
-    c1.metric(
-        label=f"🏆 Bester: {best_perf['Unternehmen']}",
-        value=f"{best_perf['Wert heute']:.2f} €",
-        delta=f"{best_perf['Gewinn/Verlust']:.2f} €"
-    )
-    c2.metric(
-        label=f"📉 Schlechtester: {worst_perf['Unternehmen']}",
-        value=f"{worst_perf['Wert heute']:.2f} €",
-        delta=f"{worst_perf['Gewinn/Verlust']:.2f} €"
-    )
+    c1.metric("🏆 Bester Invest", f"{best['Unternehmen']}", f"+{best['Gewinn']:.2f} €")
+    c2.metric("Ø Portfolio Wert", f"{df['Wert heute'].mean():.2f} €", f"{df['Gewinn'].mean():.2f} €")
     
-    # Portfolio Durchschnitt
-    avg_val = df['Wert heute'].mean()
-    avg_prof = df['Gewinn/Verlust'].mean()
-    c3.metric(
-        label="Ø Durchschnitts-Portfolio",
-        value=f"{avg_val:.2f} €",
-        delta=f"{avg_prof:.2f} €"
-    )
+    # Zähle Signale
+    sweet_spots = len(df[df['Signal'].str.contains("SWEET")])
+    c3.metric("🚀 Sweet Spots (beide Scores hoch)", sweet_spots)
 
 st.divider()
 
-# --- TABELLE ---
-
-def highlight_signal(val):
-    if 'SWEET' in str(val) or 'Up-Trend' in str(val): return 'background-color: #1f77b4; color: white'
-    if 'VALUE' in str(val): return 'background-color: #2ca02c; color: white'
-    if 'JUNK' in str(val) or 'Down-Trend' in str(val): return 'background-color: #d62728; color: white'
+# TABELLE
+def color_signal(val):
+    if 'SWEET' in val: return 'background-color: #1f77b4; color: white' # Blau
+    if 'VALUE' in val: return 'background-color: #2ca02c; color: white' # Grün
+    if 'JUNK' in val: return 'background-color: #d62728; color: white'  # Rot
     return ''
 
-if mode == "Aktien":
-    cols = ['Unternehmen', 'Ticker', 'Signal', 'Wert heute', 'Gewinn/Verlust', 'Porter Score', 'Trend', 'KGV', 'Sektor']
-    
-    st.dataframe(
-        df[cols].style.applymap(highlight_signal, subset=['Signal']),
-        column_config={
-            "Ticker": st.column_config.TextColumn("Kürzel", width="small"),
-            "Wert heute": st.column_config.NumberColumn("Wert heute", format="%.2f €"),
-            "Gewinn/Verlust": st.column_config.NumberColumn("G/V", format="%.2f €"),
-            "Porter Score": st.column_config.ProgressColumn("Porter Score", min_value=0, max_value=10, format="%d"),
-            "KGV": st.column_config.NumberColumn("KGV", format="%.1f"),
-        },
-        use_container_width=True,
-        hide_index=True,
-        height=600
-    )
+# Spalten Konfiguration
+col_config = {
+    "Ticker": st.column_config.TextColumn("Symbol", width="small"),
+    "Wert heute": st.column_config.NumberColumn("Wert", format="%.2f €"),
+    "Gewinn": st.column_config.NumberColumn("G/V", format="%.2f €"),
+    "Porter Score": st.column_config.ProgressColumn("Porter (Qualität)", min_value=0, max_value=10, format="%d", help="Fundamentale Stärke"),
+    "Psycho Score": st.column_config.ProgressColumn("Psycho (Trend)", min_value=0, max_value=10, format="%d", help="Marktstimmung & Momentum"),
+}
 
-else: # ETFs
-    cols = ['Unternehmen', 'Ticker', 'Signal', 'Wert heute', 'Gewinn/Verlust', 'Trend %', 'Vola', 'Drawdown', 'Sektor']
-    
-    st.dataframe(
-        df[cols].style.applymap(highlight_signal, subset=['Signal']),
-        column_config={
-            "Ticker": st.column_config.TextColumn("Kürzel", width="small"),
-            "Wert heute": st.column_config.NumberColumn("Wert heute", format="%.2f €"),
-            "Gewinn/Verlust": st.column_config.NumberColumn("G/V", format="%.2f €"),
-            "Trend %": st.column_config.NumberColumn("Trend", format="%.1f%%"),
-            "Vola": st.column_config.NumberColumn("Vola", format="%.1f%%"),
-            "Drawdown": st.column_config.NumberColumn("Max DD", format="%.1f%%"),
-        },
-        use_container_width=True,
-        hide_index=True,
-        height=600
-    )
+# Spalten Reihenfolge
+cols = ['Unternehmen', 'Ticker', 'Signal', 'Wert heute', 'Gewinn', 'Porter Score', 'Psycho Score', 'Sektor']
 
-# --- CHART BEREICH ---
-st.divider()
-st.subheader("📈 Historischer Verlauf (Simulation)")
+if mode == "ETFs":
+    # Bei ETFs benennen wir Porter um, damit es nicht verwirrt
+    col_config["Porter Score"] = st.column_config.ProgressColumn("Stabilitäts Score", min_value=0, max_value=10, format="%d")
 
-# Auswahlbox
-comp_select = st.multiselect(
-    "Vergleiche Entwicklung im Simulator-Zeitraum:",
-    df['Unternehmen'].unique(),
-    default=df['Unternehmen'].head(3).tolist()
+st.dataframe(
+    df[cols].style.applymap(color_signal, subset=['Signal']),
+    column_config=col_config,
+    use_container_width=True,
+    height=700,
+    hide_index=True
 )
 
-if comp_select:
-    # Ticker holen
-    sel_tickers = df[df['Unternehmen'].isin(comp_select)]['Ticker'].tolist()
-    
-    # Daten schneiden ab sim_start_date
-    chart_data = prices[sel_tickers].copy()
-    chart_data = chart_data[chart_data.index >= pd.to_datetime(sim_start_date)]
-    
-    if not chart_data.empty:
-        # Rebase auf Start-Investment (500€ = 100%)
-        # Formel: (Preis_t / Preis_0) * Investment
-        sim_chart = (chart_data / chart_data.iloc[0]) * sim_amount
-        st.line_chart(sim_chart)
-        st.caption(f"Entwicklung des Startkapitals von {sim_amount} € über die Zeit.")
+# CHART
+st.divider()
+st.subheader("Simulations-Verlauf")
+sel = st.multiselect("Vergleich:", df['Unternehmen'].unique(), default=df['Unternehmen'].head(3).tolist())
+if sel:
+    ts = df[df['Unternehmen'].isin(sel)]['Ticker'].tolist()
+    # Chart bauen
+    cd = prices[ts].copy()
+    cd = cd[cd.index >= pd.to_datetime(sim_start_date)]
+    if not cd.empty:
+        # Rebase auf Invest
+        st.line_chart((cd / cd.iloc[0]) * sim_amount)
