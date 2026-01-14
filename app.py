@@ -111,7 +111,7 @@ def calculate_psychology_score(price_series, info=None, asset_type="Stock"):
         beta = info.get('beta', 1.0)
         if beta and beta < 1.2: score += 3 # Weniger volatil als der Markt
     else:
-        # Bei ETFs nutzen wir Vola
+        # Bei ETFs nutzen wir Vola als Stabilitätsfaktor
         vola = price_series.pct_change().tail(30).std() * (252**0.5)
         if vola < 0.20: score += 3
         
@@ -125,7 +125,7 @@ def get_combined_signal(porter, psych):
     if psych <= 3: return "❄️ BEAR MARKET", "Negatives Sentiment"
     return "⚪ Neutral", "Beobachten"
 
-def calculate_simulation(ticker, price_series, start_date, invest_amount):
+def calculate_simulation(price_series, start_date, invest_amount):
     if price_series.empty: return 0, 0
     subset = price_series[price_series.index >= pd.to_datetime(start_date)]
     if subset.empty: return 0, 0
@@ -141,10 +141,19 @@ def calculate_simulation(ticker, price_series, start_date, invest_amount):
 # --- 4. DATA LOADER ---
 
 @st.cache_data
-def load_market_data(mode_type):
+def load_market_data(mode_string):
+    """
+    Lädt Daten basierend auf dem Modus-String.
+    ACHTUNG: mode_string enthält Emojis (z.B. "🏢 Aktien"), daher nutzen wir 'in'.
+    """
     all_tickers = []
     t_map = {}
-    sectors = STOCK_SECTORS if mode_type == "Aktien" else ETF_SECTORS
+    
+    # KORREKTUR: Prüfe auf Enthaltensein des Strings
+    if "Aktien" in mode_string:
+        sectors = STOCK_SECTORS
+    else:
+        sectors = ETF_SECTORS
     
     for sec, comps in sectors.items():
         for n, t in comps.items():
@@ -166,10 +175,12 @@ sim_amount = st.sidebar.number_input("Invest (€):", value=1000, step=100)
 
 # --- 6. BERECHNUNG ---
 
+# Daten laden
 prices, ticker_map = load_market_data(mode)
 results = []
+is_stock_mode = "Aktien" in mode
 
-with st.spinner(f"Berechne Scores & Simulation für {mode}..."):
+with st.spinner(f"Berechne Daten für {mode}..."):
     for ticker in ticker_map.keys():
         try:
             if ticker not in prices.columns: continue
@@ -177,27 +188,27 @@ with st.spinner(f"Berechne Scores & Simulation für {mode}..."):
             if series.empty: continue
             
             # Simulation
-            curr_val, profit = calculate_simulation(ticker, series, sim_start_date, sim_amount)
+            curr_val, profit = calculate_simulation(series, sim_start_date, sim_amount)
             
             # Scores berechnen
             porter_score = 0
             psych_score = 0
             
-            if mode == "Aktien":
+            if is_stock_mode:
+                # Aktien Logik: Info laden für Porter
                 try:
                     info = yf.Ticker(ticker).info
                     porter_score = calculate_porter_score(info)
                     psych_score = calculate_psychology_score(series, info, "Stock")
                 except:
+                    # Fallback
                     psych_score = calculate_psychology_score(series, None, "Stock")
             else:
-                # ETFs haben keinen Porter-Score (setzen wir auf N/A oder Simulation)
-                # Wir nutzen Porter hier als "Risiko-Invers" oder lassen es leer
-                # Um die Logik konsistent zu halten, nennen wir es "Tech-Score"
-                psych_score = calculate_psychology_score(series, None, "ETF")
-                # Für ETFs: Porter = 10 - Vola*10 (als Dummy für Stabilität)
+                # ETF Logik: Kein klassischer Porter, wir nutzen Vola-Stabilität
+                # Wir 'simulieren' Porter als Stabilitäts-Metrik für die Matrix
                 vola = series.pct_change().tail(30).std() * (252**0.5)
                 porter_score = max(0, min(10, int(10 - vola*20))) 
+                psych_score = calculate_psychology_score(series, None, "ETF")
             
             sig_title, sig_desc = get_combined_signal(porter_score, psych_score)
             
@@ -207,8 +218,8 @@ with st.spinner(f"Berechne Scores & Simulation für {mode}..."):
                 "Sektor": ticker_map[ticker]['sector'],
                 "Wert heute": curr_val,
                 "Gewinn": profit,
-                "Porter Score": porter_score,     # <--- DA IST ER
-                "Psycho Score": psych_score,      # <--- DA IST ER
+                "Porter Score": porter_score,
+                "Psycho Score": psych_score,
                 "Signal": sig_title
             })
         except: continue
@@ -223,12 +234,12 @@ st.markdown(f"### {mode}-Simulator & Analyse")
 if not df.empty:
     best = df.loc[df['Gewinn'].idxmax()]
     c1, c2, c3 = st.columns(3)
-    c1.metric("🏆 Bester Invest", f"{best['Unternehmen']}", f"+{best['Gewinn']:.2f} €")
+    c1.metric("🏆 Bester Invest", f"{best['Unternehmen']} ({best['Ticker']})", f"+{best['Gewinn']:.2f} €")
     c2.metric("Ø Portfolio Wert", f"{df['Wert heute'].mean():.2f} €", f"{df['Gewinn'].mean():.2f} €")
     
     # Zähle Signale
     sweet_spots = len(df[df['Signal'].str.contains("SWEET")])
-    c3.metric("🚀 Sweet Spots (beide Scores hoch)", sweet_spots)
+    c3.metric("🚀 Sweet Spots (Score 7+)", sweet_spots, "Hohe Scores")
 
 st.divider()
 
@@ -244,16 +255,17 @@ col_config = {
     "Ticker": st.column_config.TextColumn("Symbol", width="small"),
     "Wert heute": st.column_config.NumberColumn("Wert", format="%.2f €"),
     "Gewinn": st.column_config.NumberColumn("G/V", format="%.2f €"),
-    "Porter Score": st.column_config.ProgressColumn("Porter (Qualität)", min_value=0, max_value=10, format="%d", help="Fundamentale Stärke"),
-    "Psycho Score": st.column_config.ProgressColumn("Psycho (Trend)", min_value=0, max_value=10, format="%d", help="Marktstimmung & Momentum"),
+    "Psycho Score": st.column_config.ProgressColumn("Psycho (Trend)", min_value=0, max_value=10, format="%d"),
 }
+
+# Dynamische Spalten-Namen je nach Modus
+if is_stock_mode:
+    col_config["Porter Score"] = st.column_config.ProgressColumn("Porter (Qualität)", min_value=0, max_value=10, format="%d", help="Fundamentale Stärke")
+else:
+    col_config["Porter Score"] = st.column_config.ProgressColumn("Stabilität (Risiko)", min_value=0, max_value=10, format="%d", help="Niedrige Volatilität = Hoher Score")
 
 # Spalten Reihenfolge
 cols = ['Unternehmen', 'Ticker', 'Signal', 'Wert heute', 'Gewinn', 'Porter Score', 'Psycho Score', 'Sektor']
-
-if mode == "ETFs":
-    # Bei ETFs benennen wir Porter um, damit es nicht verwirrt
-    col_config["Porter Score"] = st.column_config.ProgressColumn("Stabilitäts Score", min_value=0, max_value=10, format="%d")
 
 st.dataframe(
     df[cols].style.applymap(color_signal, subset=['Signal']),
@@ -275,3 +287,4 @@ if sel:
     if not cd.empty:
         # Rebase auf Invest
         st.line_chart((cd / cd.iloc[0]) * sim_amount)
+        st.caption("Verlauf des investierten Kapitals über die Zeit.")
